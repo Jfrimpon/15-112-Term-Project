@@ -1,0 +1,3012 @@
+import pygame
+import time
+import random
+import copy
+
+"""CLASSES"""
+
+class Player(pygame.sprite.Sprite):
+    def __init__(self, velocity, maxJump, width, 
+                height, color, health, inputImage = None):
+        pygame.sprite.Sprite.__init__(self)
+        if inputImage == None:
+            self.image = pygame.Surface([width, height])
+            self.image.fill(color)
+        else:
+            self.image = pygame.image.load(str(inputImage)).convert()
+            #get rid of white
+            self.image.set_colorkey((255,255,255))
+        self.rect = self.image.get_rect()
+        self.xMove = velocity
+        self.yMove = 0
+        self.maxJump = maxJump
+        self.width = self.rect.right - self.rect.left
+        self.height = self.rect.top - self.rect.bottom
+        self.health = health
+
+class PlayerGun(pygame.sprite.Sprite):
+    def __init__(self, inputImage):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(str(inputImage)).convert()
+        #get rid of white
+        self.image.set_colorkey((255,255,255))
+        self.rect = self.image.get_rect()
+        self.width = self.rect.right - self.rect.left
+        self.height = self.rect.top - self.rect.bottom
+
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, xVelo, yVelo, width, height, 
+                health, color=None, inputImage=None):
+        pygame.sprite.Sprite.__init__(self)
+        if inputImage == None:
+            self.image = pygame.Surface([width, height])
+            self.image.fill(color)
+        else:
+            self.image = pygame.image.load(str(inputImage)).convert()
+            #no white surrounding
+            self.image.set_colorkey((255,255,255))
+        self.rect = self.image.get_rect()
+        self.xMove = xVelo
+        self.yMove = yVelo
+        self.velo = [xVelo, yVelo]
+        self.health = health
+        self.width = self.rect.right - self.rect.left
+        self.height = self.rect.top - self.rect.bottom
+        self.bulletCount = 0
+        #each enemy has its own lost health bar list
+        self.healthBar = None
+        self.lostHealthBarList = pygame.sprite.Group()
+
+class NoobCopper(Enemy):
+    pass
+
+class FootSoldier(Enemy):
+    pass
+
+class JetFighter(Enemy):
+    pass
+
+class EnemyBullet(pygame.sprite.Sprite):
+    def __init__(self, width, height, color, damage, 
+                            xVelo, yVelo, fireRate):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.Surface([width, height])
+        self.image.fill(color)
+        self.rect = self.image.get_rect()
+        self.xVelo = xVelo
+        self.yVelo = yVelo
+        self.fireRate = fireRate
+        self.damage = damage
+        self.width = width
+        self.height = height
+        self.velo = [xVelo, yVelo]
+
+#to differentiate between bullets in data.enemyBulletList
+class NoobCopperBullet(EnemyBullet):
+    pass
+
+class FootSoldierBomb(EnemyBullet):
+    pass
+
+class JetFighterBullet(EnemyBullet):
+    pass
+
+class PlayerHealthBar(pygame.sprite.Sprite):
+    def __init__(self, length, height, color, 
+            totalHealth = 0, damageTaken = 0):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.Surface([length, height])
+        self.image.fill(color)
+        self.rect = self.image.get_rect()
+        self.length = length
+        self.totalHealth = totalHealth
+        self.damageTaken = damageTaken
+
+#separated for clarity and distinguishing purposes
+class EnemyHealthBar(pygame.sprite.Sprite):
+    def __init__(self, length, height, color):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.Surface([length, height])
+        self.image.fill(color)
+        self.length = length
+        self.rect = self.image.get_rect()
+
+#total is total amount of health/antiGrav time the player has
+#amount is the amount of health/antiGrav the player regains
+#200 is the full length of the bars
+#length is the fraction of the total bar that the player is regaining
+#height is the skinnHealthBarSize
+class BarPickUp(pygame.sprite.Sprite):
+    def __init__(self, color, amount, total, height = 10):
+        pygame.sprite.Sprite.__init__(self)
+        length = 200*amount/float(total)
+        self.length = int(length)
+        self.height = height
+        self.amount = amount
+        self.color = color
+        self.image = pygame.Surface([length, height])
+        self.image.fill(color)
+        self.rect = self.image.get_rect()
+
+class HealthBarPickUp(BarPickUp):
+    pass
+
+class AntiGravityBarPickUp(BarPickUp):
+    pass
+
+class GunPickUpBar(pygame.sprite.Sprite):
+    def __init__(self, length, height, color, inputImage = None):
+        pygame.sprite.Sprite.__init__(self)
+        if inputImage == None:
+            self.image = pygame.Surface([length, height])
+            self.image.fill(color)
+        else:
+            self.image = pygame.image.load(str(inputImage)).convert()
+            #white background gone
+            self.image.set_colorkey((255,255,255))
+        self.length = length
+        self.height = height
+        self.color = color #want color no matter what to differentiate
+        #and use for lasers
+        self.rect = self.image.get_rect()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""CONTROLLERS AND PLAYER MOVEMENT"""
+
+def mousePressed(data, event):
+    if data.mode == "Main Menu":
+        x,y = pygame.mouse.get_pos()
+        rect1 = data.playGameRect
+        rect2 = data.instRect
+        if ((rect1.left <= x <= rect1.right) and 
+            (rect1.top <= y <= rect1.bottom)):
+            regravityStuff(data)
+            data.startTime = time.time()
+            data.mode = "Running"
+        elif ((rect2.left <= x <= rect2.right) and 
+            (rect2.top <= y <= rect2.bottom)):
+            data.instructions = True
+        if data.instructions == True:
+            checkIfBackButtonPressed(data, x, y)
+    elif data.mode == "End Menu":
+        x,y = pygame.mouse.get_pos()
+        rect6 = data.endMenuRect
+        if ((rect6.left <= x <= rect6.right) and 
+            (rect6.top <= y <= rect6.bottom)):
+            data.mode = "Main Menu"
+            init(data)
+
+def checkIfBackButtonPressed(data, x, y):
+    #presses back
+    rect3 = data.backRect
+    if ((rect3.left <= x <= rect3.right) and 
+        (rect3.top <= y <= rect3.bottom)):
+        #either on the controls page or the items page
+        if data.controlsBool != True and data.itemsBool != True:
+            data.instructions = False
+        elif data.controlsBool == True:
+            data.controlsBool = False
+        elif data.itemsBool == True:
+            data.itemsBool = False
+    #presses controls
+    rect4 = data.controlsRect
+    if ((rect4.left <= x <= rect4.right) and 
+        (rect4.top <= y <= rect4.bottom)):
+        data.controlsBool = True
+    #presses items
+    rect5 = data.itemsRect
+    if ((rect5.left <= x <= rect5.right) and 
+        (rect5.top <= y <= rect5.bottom)):
+        data.itemsBool = True
+
+
+
+def getMouseHeld(data):
+    #mouses is a triple of 0's and/or 1's, 1 == True, 0 == False
+    #counts the amount of time this function is called
+    data.gunBulletCount += 1
+    mouses = pygame.mouse.get_pressed()
+    #fire until a clip is done. once it's done, reload
+    legal = checkIfGunHasAmmoLeft(data)
+    if legal == True:
+        #this determines fireRate
+        if data.gunBulletCount % data.gunFR == 0:
+            #still has ammo in the clip
+            if len(data.gunBulletList) < data.gunClipSize:
+                if mouses[0]: 
+                    #only fire when mouse is not clicking on player
+                    if not ((data.mousePos[0] >= data.player.rect.left) 
+                        and (data.mousePos[0] <= data.player.rect.right)
+                        and (data.mousePos[1] <= data.player.rect.bottom)
+                        and (data.mousePos[1] >= data.player.rect.top)):
+                        data.reloading = False
+                        playerFireBullets(data)
+                    else:
+                        pass
+            else:
+                #reload
+                if data.reloading == False:
+                    data.startingToReload = time.time()
+                    data.reloading = True
+    else:
+        #red laser beam signifies that gun is out of ammo
+        data.gunColor = data.red
+
+#once a normal bullet list (ie smgBulletList or raygunBulletList) hits or exceeds
+#   the maximum amount of bullets it carries, it's out of ammo so
+#   it cannot shoot
+def checkIfGunHasAmmoLeft(data):
+    if data.gunFR == data.smgFR:
+        return True #smg is starting gun, never runs out
+    elif data.gunFR == data.arFR:
+        if len(data.arBulletList) >= data.arMaxBullets:
+            return False
+    elif data.gunFR == data.raygunFR:
+        if len(data.raygunBulletList) >= data.raygunMaxBullets:
+            return False
+    elif data.gunFR == data.rocketlauncherFR:
+        if len(data.rocketlauncherBulletList) >= data.rocketlauncherMaxBullets:
+            return False
+    return True
+
+
+def keyReleased(data, event):
+    #if the player is in the air, keep x velocity
+    #keep moving if in mid air, else, stop
+    #*2 because we divide velo by 2 if in mid air
+    data.prevVeloX = data.player.velo[0]*2
+    if event.key == pygame.K_d or event.key == pygame.K_a:
+        data.pressingD = False
+        data.shiftingEverythingLeft = False
+        if (data.onPlatform == True):
+            data.player.velo[0] = 0
+        else: 
+            data.player.velo[0] = data.prevVeloX
+    if event.key == pygame.K_LSHIFT:
+        #can now wait to start replenishing bar
+        data.startWaitingTime = time.time()
+        data.antiGravity = False
+        data.player.velo[0] = 0
+        data.player.velo[1] = 0
+
+def keyPressed(data, event):
+    if event.key == pygame.K_ESCAPE:
+        data.gameOver = True
+    elif event.key == pygame.K_1:
+        #0 is the zeroth index of the available gun list
+        switchWeapons(data, 0)
+    elif event.key == pygame.K_2:
+        if len(data.availableGunList) >= 2:
+            switchWeapons(data, 1)
+    elif event.key == pygame.K_3:
+        if len(data.availableGunList) >= 3:
+            switchWeapons(data, 2)
+    elif event.key == pygame.K_4:
+        if len(data.availableGunList) >= 4:
+            switchWeapons(data, 3)
+    elif (event.key == pygame.K_SPACE):
+        if data.inMidAir == False:
+            #check where player is first
+            data.player.velo[1] = - ((2*9.8*data.player.maxJump)/10.0)**0.5
+            data.player.rect = data.player.rect.move(data.player.velo)
+            updateGunPosition(data)
+            data.inMidAir = True
+            data.onPlatform = False
+    elif (event.key == pygame.K_p) and data.mode == "Running":
+        data.paused = not data.paused
+        if data.paused == True:
+            data.startPause = time.time()
+        else:
+            data.timePaused += time.time() - data.startPause
+
+def switchWeapons(data, index): 
+    newGunBundle = data.availableGunList[index]
+    #only switch weapons to new weapons
+    if data.gunColor != newGunBundle[4]:
+        #so we don't automatically reload
+        #as opposed to the entire bullet list of a weapon
+        # save where we were in the clip of this gun
+        findPreviousGunBulletList(data)
+        getNewGunAttributes(data, newGunBundle)
+        #what's the new clip of this new gun?
+        getNewGunBulletList(data)
+        data.reloading = False
+        # getNewGunBulletList(data)
+
+#bullet list per clip, not entire bullet list of bullet's that's been fired
+def findPreviousGunBulletList(data):
+    # want aliases because they don't cost memory and don't cause lag
+    if data.gunColor == data.smgColor:
+        data.prevSMGBulletList = (data.gunBulletList)
+    elif data.gunColor == data.arColor:
+        data.prevARBulletList = (data.gunBulletList)
+    elif data.gunColor == data.raygunColor:
+        data.prevRAYGUNBulletList = (data.gunBulletList)
+    elif data.gunColor == data.rocketlauncherColor:
+        data.prevROCKETLAUNCHERBulletList = (data.gunBulletList)
+
+def getNewGunBulletList(data):
+    #aliases don't matter in this case
+    if data.gunColor == data.smgColor:
+        data.gunBulletList = data.prevSMGBulletList
+    elif data.gunColor == data.arColor:
+        data.gunBulletList = data.prevARBulletList
+    elif data.gunColor == data.raygunColor:
+        data.gunBulletList = data.prevRAYGUNBulletList
+    elif data.gunColor == data.rocketlauncherColor:
+        data.gunBulletList = data.prevROCKETLAUNCHERBulletList
+
+def getKeyHeld(data):
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_LSHIFT]:
+        if data.antiGravBarAvail == True:
+            data.antiGravity = True
+        else:
+            data.antiGravity = False
+            data.player.velo[0] = 0
+    WSKeysHeld(data, keys)
+    ADKeysHeld(data, keys)
+
+#checks if the 'w' and/or 's' keys are being held
+def WSKeysHeld(data, keys):
+    if data.antiGravity == True:
+        if keys[pygame.K_w]:
+            data.player.rect.y -= data.player.xMove
+        elif keys[pygame.K_s]:
+            data.player.rect.y += data.player.xMove
+
+def ADKeysHeld(data, keys):
+    if keys[pygame.K_a] and data.player.rect.left > 0:
+        data.shiftingEverythingLeft = False
+        if data.inMidAir == False:
+            data.player.rect.x -= data.player.xMove
+            data.player.velo[0] = -data.player.xMove
+        #don't speed up in midAir
+        else:
+            data.player.rect.x -= data.player.xMove/2.0
+            data.player.velo[0] = -data.player.xMove/2.0
+        updateGunPosition(data)
+    #make the sidescroller illusion of moving to the right
+    elif keys[pygame.K_d]:
+        dKeyHeld(data, keys)
+
+def dKeyHeld(data, keys):
+    data.pressingD = True
+    #shift position is twothirds of the screen's width
+    if data.player.rect.right < data.shiftPosition:
+        movedRight = data.player.rect.right
+        if movedRight > data.playerFurthestRight:
+            data.playerFurthestRight = movedRight
+            if data.hitShiftPosition == False:
+                data.distance += 1
+        playerNormalMoveRight(data)
+        data.shiftingEverythingLeft = False
+    else:
+        data.hitShiftPosition = True
+        data.distance += 1
+        #shifting everything to the 
+        #   left when player moves to the right
+        data.player.velo[0] = (data.player.xMove if data.inMidAir == False
+                                else data.player.xMove/2.0)
+        data.shiftingEverythingLeft = True
+        shiftEverythingLeft(data)
+        createPlatforms(data)
+        spawnPickUps(data)
+    #check boundaries
+    if data.player.rect.left < data.margin:
+            data.player.rect.left = data.margin
+    elif data.player.rect.right > data.screenSize[0]-data.margin:
+        data.player.rect.right = data.screenSize[0]-data.margin
+
+#spawns health and antigravity bars
+def spawnPickUps(data):
+    # help player out
+    # 3 seconds left
+    if data.antiGravityTimeLeft <= data.antiGravityTimeLimit/4:
+        createAntiGravPickUp(data)
+    # 100 health left
+    if data.player.health <= data.playerHealth/3:
+        createHealthPickUp(data)
+    #reward player if he continues right while killing enemies
+    if (data.trackKills >= data.gunSpawnVals[0] and 
+        data.trackKills <= data.gunSpawnVals[1] and 
+        data.firstGunPickUp == False):
+        data.firstGunPickUp = True
+        createGunPickUp(data)
+    elif (data.trackKills >= data.gunSpawnVals[2] and 
+            data.trackKills <= data.gunSpawnVals[3] and 
+            data.secondGunPickUp == False):
+        data.secondGunPickUp = True
+        createGunPickUp(data)
+    elif (data.trackKills >= data.gunSpawnVals[4] and 
+          data.trackKills <= data.gunSpawnVals[5] and 
+          data.thirdGunPickUp == False):
+        data.thirdGunPickUp = True
+        createGunPickUp(data)
+
+#simulate player moving to the right by dragging everything else to the left
+def shiftEverythingLeft(data):
+    keys = pygame.key.get_pressed()
+    movingBackground(data)
+    for enemy in data.enemyList:
+        enemy.rect.left -= data.player.xMove
+        #move the red enemy health bar
+        enemy.healthBar.rect.left -= data.player.xMove
+        #move the black damage taken bars
+        shiftLostEnemyHealthBars(data, enemy)
+    for bullet in data.enemyBulletList:
+        bullet.rect.left -= data.player.xMove
+    for platform in data.platformList:
+        platform.rect.left -= data.player.xMove
+    for bar in data.barPickUps:
+        bar.rect.left -= data.player.xMove
+    for gun in data.gunPickUps:
+        gun.rect.left -= data.player.xMove
+    moveEnemies(data)
+
+#move them leftwards
+def shiftLostEnemyHealthBars(data, enemy):
+    leftRedHealthBarPos = enemy.healthBar.rect.left
+    #initialize
+    furthestLeft = data.screenSize[0]*1000
+    #unordered sprite group so we have to find it manually
+    for healthBar in enemy.lostHealthBarList:
+        if healthBar.rect.left < furthestLeft:
+            furthestLeft = healthBar.rect.left
+    displacement = furthestLeft - leftRedHealthBarPos
+    for healthBar in enemy.lostHealthBarList:
+        healthBar.rect.left -= displacement+data.epsilon #for lag time error
+        if isinstance(enemy, JetFighter):
+            healthBar.rect.centery = enemy.healthBar.rect.centery
+    #initialize
+    furthestRight = -10000000
+    for hBar in enemy.lostHealthBarList:
+        if hBar.rect.right > furthestRight:
+            furthestRight = hBar.rect.right
+            #find where next health loss bar should be when
+            #   enemies are moving at an increased velocity
+            enemy.nextHealthLossRectLeft = furthestRight
+
+
+#player actually moves, screen doesn't
+def playerNormalMoveRight(data):
+    keys = pygame.key.get_pressed()
+    if data.inMidAir == False:
+        data.player.rect.x += data.player.xMove
+        data.player.velo[0] = data.player.xMove
+    #keep same velocity
+    else:
+        data.player.rect.x += data.player.xMove/2.0
+        data.player.velo[0] = data.player.xMove/2.0
+    updateGunPosition(data)
+
+def simPlayerGravity(data):
+    if data.antiGravity == False:
+        data.prevVeloY = data.player.velo[1]
+        vY0 = data.prevVeloY
+        timeDiff = time.time() - data.currTime
+        data.player.velo[1] = vY0 + (10.0*timeDiff) #kinematic equation
+        data.currTime = time.time()
+        #enabled for jumping
+        #enable gravity
+        if data.inMidAir == True:
+            inAirMovePlayer(data)
+    else:
+        #reset for later calculations
+        data.currTime = time.time()
+    resetPlayerVelo(data)
+    screenBounds(data)
+
+def inAirMovePlayer(data):
+    if data.player.rect.right < data.shiftPosition:
+        data.player.rect = data.player.rect.move(data.player.velo)
+    #shifting everything to the left when player jumps to the right
+    else:
+        data.player.rect = data.player.rect.move(0,data.player.velo[1])
+        #pressingD boolean for double calling
+        # > 0 so we shift everything at the right times
+        if data.player.velo[0] > 0 and data.pressingD == False:
+            data.distance += 1
+            shiftEverythingLeft(data)
+    updateGunPosition(data)
+
+def resetPlayerVelo(data):
+    if (data.onPlatform == True):
+        data.player.velo[0] = 0
+
+def screenBounds(data):
+    #boundaries
+    if data.player.rect.bottom > data.screenSize[1] - data.margin:
+        damageDone = data.playerHealth
+        updatePlayerHealth(data, damageDone)
+        data.mode = "End Menu"
+    elif data.player.rect.left < 0+data.margin:
+        data.player.rect.left = data.margin
+    elif data.player.rect.right > data.screenSize[0] - data.margin:
+        data.player.rect.right = data.screenSize[0] - data.margin
+    elif data.player.rect.top < 0 + data.margin:
+        data.player.rect.top = data.margin
+    updateGunPosition(data)
+
+def simFootSoldierBombGravity(data):
+    for bomb in data.enemyBulletList:
+        if isinstance(bomb, FootSoldierBomb):
+            gravitizeFootSoldierBomb(data, bomb)
+
+def gravitizeFootSoldierBomb(data, bomb):
+    prevVeloY = bomb.velo[1]
+    vY0 = prevVeloY
+    timeDiff = time.time() - bomb.time
+    bomb.velo[1] = vY0 + (10.0*timeDiff) #kinematic equation
+    bomb.time = time.time()
+
+def callFunctions(data):
+    simPlayerGravity(data)
+    simFootSoldierBombGravity(data)
+    playerPlatformCollisions(data)
+    data.mousePos = pygame.mouse.get_pos()
+    moveEnemies(data)
+    updateEnemies(data)
+    updatePlatforms(data)
+    updateBarPickUps(data)
+    updateGunPickUps(data)
+    #hold down a key to move, not rapidly press
+    getKeyHeld(data)
+    #call twice so you don't go through platforms
+    playerPlatformCollisions(data)
+    getMouseHeld(data)
+    enemyFireBullets(data)
+    moveLostFootSoldierHealthBars(data)#, enemy)
+    updateBullets(data)
+    updateEnemyBullets(data)
+    bulletCollisionDetector(data)
+    enemyBulletCollisions(data)
+    playerEnemyCollisions(data)
+    playerBarPickUpCollisions(data)
+    gunPickUpCollisions(data)
+    calculateScore(data)
+
+#10 pixels per meter
+def calculateScore(data):
+    score = 0.5*data.distance/10 + 0.4*data.kills + 0.1*data.timePlayed
+    data.score = 10*score
+
+def doAntiGravityStuff(data):
+    #call about every second
+    if data.timerFiredCount % data.frameRate == 0:
+        if data.antiGravity == True:
+            data.antiGravityTimeLeft -= 1
+            #call every second
+            if data.antiGravityTimeLeft > 0:
+                updateAntiGravityBar(data)
+            else:
+                data.startWaitingTime = time.time()
+                if data.antiGravBlackBar not in data.spritesList:
+                    makeFullBlackBar(data, "grav")
+                data.currTime = time.time()
+                data.antiGravBarAvail = False
+                data.antiGravity = False
+        elif data.antiGravity == False or data.antiGravityTimeLeft == 0:
+            if ((data.antiGravityTimeLeft == 0) and 
+                (data.antiGravBlackBar not in data.spritesList)):
+                makeFullBlackBar(data, "grav")
+            timeElapsed = time.time() - data.startWaitingTime
+            if timeElapsed >= data.timeToWait:
+                replenishAntiGravityBar(data)
+
+#after 5 seconds of not using antigravity, the bar replenishes
+def replenishAntiGravityBar(data):
+    data.antiGravBarAvail = True
+    if data.antiGravityTimeLeft < data.antiGravityTimeLimit:
+        data.antiGravityTimeLeft += 1
+    #black bars covering up main blue one 
+    if data.orderedUsedAntiGravList != []:
+        index = len(data.orderedUsedAntiGravList) - 1
+        #remove the most left one
+        lastAntiGravBarIn = data.orderedUsedAntiGravList[index]
+        data.usedAntiGravList.remove(lastAntiGravBarIn)
+        if data.antiGravBlackBar in data.spritesList:
+            data.spritesList.remove(data.antiGravBlackBar)
+            data.spritesList.add(data.playerAntiGravityBar)
+        data.orderedUsedAntiGravList.remove(lastAntiGravBarIn)
+        #update where we draw the new black bars
+        if data.orderedUsedAntiGravList != []:
+            index = len(data.orderedUsedAntiGravList) - 1
+            nextLastBar = data.orderedUsedAntiGravList[index]
+            data.nextAntiGravLossRectRight = nextLastBar.rect.left
+        #removed all of the black bars
+        else:
+            data.nextAntiGravLossRectRight = data.playerAntiGravityBar.rect.right
+
+def gunReloading(data):
+    if data.startingToReload != None:
+        timeElapsed = time.time() - data.startingToReload
+        if timeElapsed >= data.gunReloadTime:
+            #reload! only empty the deepcopy of the original list to 
+            #   save the count of how many of the bullets were fired
+            getNewGunBulletList(data)
+            data.gunBulletList.empty()
+            data.startingToReload = None
+            data.reloading = False
+
+#can't bind events so we have to check if a key or mouse is
+    #   pressed manually
+def timerFired(data):
+    if not data.paused and data.mode == "Running":
+        #no cursor
+        pygame.mouse.set_visible(False)
+        data.timerFiredCount += 1
+        redrawAll(data)
+        data.frameRate = 60
+        #only evey two seconds
+        if data.timerFiredCount % 30 == 0:
+            if data.spawnEnemy == True and len(data.enemyList) < 6:
+                createEnemies(data)
+            else:
+                data.spawnEnemy = False
+        #60 frames per second, call timer fired about 60 times a second
+        data.clock.tick(data.frameRate)
+        doAntiGravityStuff(data)
+        gunReloading(data)
+        callFunctions(data)
+        for event in pygame.event.get():
+            if (event.type == pygame.QUIT):
+                pygame.quit()
+                data.gameOver = True 
+            elif (event.type == pygame.MOUSEBUTTONDOWN):
+                mousePressed(data, event)
+            elif (event.type == pygame.KEYDOWN):
+                keyPressed(data, event)
+            elif (event.type == pygame.KEYUP):
+                keyReleased(data, event)
+    else:
+        if data.paused == True:
+            drawPauseMenu(data)
+        elif data.mode == "Main Menu":
+            drawMainMenu(data)
+        elif data.mode == "End Menu":
+            drawEndMenu(data)
+
+def regravityStuff(data):
+    #for the bomb gravity
+    for bomb in data.enemyBulletList:
+        if isinstance(bomb, FootSoldierBomb):
+            bomb.time = time.time()
+    #for player gravity
+    data.currTime = time.time()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""DRAWING"""
+
+def drawEndMenu(data):
+    pygame.mouse.set_visible(True)
+    calculateScore(data)
+    makeFullBlackBar(data, "health")
+    cx, cy = data.screenSize[0]/2, data.screenSize[1]/2
+    halfLength, halfHeight = 100*2,80*2
+    rect = pygame.draw.rect(data.screen, data.red,
+        [cx-halfLength, cy-halfHeight, halfLength*2, halfHeight*2])
+    font = pygame.font.Font(None, 60)
+    text = font.render("Game Over!", True, data.yellow)
+    data.screen.blit(text, [cx-120,cy-100])
+    text = font.render("Score: %d" % data.score, True, data.yellow)
+    data.screen.blit(text, [cx-100, cy])
+    data.screen.blit(data.endMenuMainMenu, data.endMenuRect)
+    pygame.display.flip()
+    for event in pygame.event.get():
+        if (event.type == pygame.QUIT):
+            pygame.quit()
+            data.gameOver = True 
+        elif (event.type == pygame.MOUSEBUTTONDOWN):
+            mousePressed(data, event)
+        elif (event.type == pygame.KEYDOWN):
+            keyPressed(data, event)
+
+
+def drawMainMenu(data):
+    #you can see the mouse
+    pygame.mouse.set_visible(True)
+    #this background from: 
+    # http://www.deviantart.com/morelikethis/artists/90839440?view_mode=2
+    data.mainMenuBground = pygame.image.load("mainMenuBground2.png").convert()
+    data.mainMenuBground = pygame.transform.scale(
+                                data.mainMenuBground, data.screenSize)
+    data.mainMenuRect = data.mainMenuBground.get_rect()
+    data.screen.blit(data.mainMenuBground, data.mainMenuRect)
+    if data.instructions == True:
+        drawInstructions(data)
+    else:
+        drawTitleAndOptions(data)
+    pygame.display.flip()
+    for event in pygame.event.get():
+        if (event.type == pygame.QUIT):
+            pygame.quit()
+            data.gameOver = True 
+        elif (event.type == pygame.MOUSEBUTTONDOWN):
+            mousePressed(data, event)
+        elif (event.type == pygame.KEYDOWN):
+            keyPressed(data, event)
+    regravityStuff(data)
+
+def drawInstructions(data):
+    #draw back button
+    data.screen.blit(data.back, data.backRect)
+    objectives = pygame.image.load("objectives.png").convert()
+    objectives.set_colorkey(data.white)
+    objRect = objectives.get_rect()
+    objRect.left = int(round(1*data.screenSize[0]/8.0))
+    objRect.top = data.margin*4
+    data.screen.blit(objectives, objRect)
+    #draw controls button
+    data.screen.blit(data.controls, data.controlsRect)
+    #draw items button
+    data.screen.blit(data.items, data.itemsRect)
+    if data.controlsBool == True:
+        drawControls(data)
+    elif data.itemsBool == True:
+        drawItems(data)
+
+def drawControls(data):
+    data.screen.fill(data.black)
+    data.screen.blit(data.mainMenuBground, data.mainMenuRect)
+    #back button
+    data.screen.blit(data.back, data.backRect)
+    mouse = pygame.image.load("mouse.png").convert()
+    mouse.set_colorkey(data.white)
+    mouseRect = mouse.get_rect()
+    mouseRect.left = int(round(1*data.screenSize[0]/8.0))
+    mouseRect.top = data.margin*4
+    data.screen.blit(mouse, mouseRect)
+    keys = pygame.image.load("keys.png").convert()
+    keys.set_colorkey(data.white)
+    keysRect = keys.get_rect()
+    keysRect.left = int(round(1*data.screenSize[0]/8.0))
+    keysRect.top = data.screenSize[1]/2 + 4*data.margin
+    data.screen.blit(keys, keysRect)
+
+def drawItems(data):
+    data.screen.fill(data.black)
+    data.screen.blit(data.mainMenuBground, data.mainMenuRect)
+    #back button
+    data.screen.blit(data.back, data.backRect)
+    playerItems = pygame.image.load("playerItems.png").convert()
+    playerItems.set_colorkey(data.white)
+    playerItemsRect = playerItems.get_rect()
+    playerItemsRect.left = int(round(1*data.screenSize[0]/8.0))
+    playerItemsRect.top = data.margin*4
+    data.screen.blit(playerItems, playerItemsRect)
+    itemPickUps = pygame.image.load("itemPickUps.png").convert()
+    itemPickUps.set_colorkey(data.white)
+    itemPickUpsRect = itemPickUps.get_rect()
+    itemPickUpsRect.left = int(round(1*data.screenSize[0]/8.0))
+    itemPickUpsRect.top = data.screenSize[1]/2
+    data.screen.blit(itemPickUps, itemPickUpsRect)
+
+def drawTitleAndOptions(data):
+    title = pygame.image.load("title.png").convert()
+    title.set_colorkey(data.white)
+    titleRect = title.get_rect()
+    #title.rect = titleRect
+    titleRect.centerx = data.screenSize[0]/2
+    titleRect.top = data.margin
+    data.screen.blit(title, titleRect)
+    instructionsButton = pygame.image.load("instructionsButton.png").convert()
+    instructionsButton.set_colorkey(data.white)
+    data.instRect = instructionsButton.get_rect()
+    data.instRect.left = int(round(1*data.screenSize[0]/6.0))
+    data.instRect.bottom = data.screenSize[1]-data.margin*6
+    data.screen.blit(instructionsButton, data.instRect)
+    playGame = pygame.image.load("playGame.png").convert()
+    playGame.set_colorkey(data.white)
+    data.playGameRect = playGame.get_rect()
+    data.playGameRect.right = int(round(5*data.screenSize[0]/6.0))
+    data.playGameRect.bottom = data.screenSize[1]-data.margin*6
+    data.screen.blit(playGame, data.playGameRect)
+
+
+def drawPauseMenu(data):
+    cx, cy = data.screenSize[0]/2, data.screenSize[1]/2
+    halfLength, halfHeight = 100*2,80*2
+    rect = pygame.draw.rect(data.screen, data.black,
+        [cx-halfLength, cy-halfHeight, halfLength*2, halfHeight*2])
+    font = pygame.font.Font(None, 60)
+    text = font.render("Paused", True, data.white)
+    data.screen.blit(text, [cx-80,cy-100])
+    text = font.render("Score: %d" % data.score, True, data.white)
+    data.screen.blit(text, [cx-95, cy+70])
+    pygame.display.flip()
+    for event in pygame.event.get():
+        if (event.type == pygame.QUIT):
+            pygame.quit()
+            data.gameOver = True 
+        elif (event.type == pygame.MOUSEBUTTONDOWN):
+            mousePressed(data, event)
+        elif (event.type == pygame.KEYDOWN):
+            keyPressed(data, event)
+    regravityStuff(data)
+
+
+def movingBackground(data):
+    data.bgroundRect.left -= data.player.xMove
+    data.bgroundRect.left %= data.screenSize[0]
+    if data.bgroundRect.left == 0:
+        data.copyBground = data.bground
+        data.copyBgroundRect.left = data.player.xMove
+    data.copyBgroundRect.left -= data.player.xMove
+
+def drawDeathLava(data):
+    left = 0
+    top = data.screenSize[1] - data.margin
+    length = data.screenSize[0]
+    height = data.margin
+    pygame.draw.rect(data.screen, data.red, [left, top, length, height])
+
+def redrawAll(data):
+    data.screen.fill(data.black)
+    data.screen.blit(data.copyBground, data.copyBgroundRect)
+    data.screen.blit(data.bground, data.bgroundRect)
+    drawDeathLava(data)
+    data.spritesList.draw(data.screen)
+    #spriteLists(groups) are unordered so draw 
+    #   healthBar losses after everything else
+    #   for the player
+    data.barPickUps.draw(data.screen)
+    data.gunPickUps.draw(data.screen)
+    data.lostHealthBarList.draw(data.screen)
+    data.usedAntiGravList.draw(data.screen)
+    #draw the laser only if gun isn't pointed at player
+    if not ((data.mousePos[0] >= data.player.rect.left) 
+        and (data.mousePos[0] <= data.player.rect.right)
+        and (data.mousePos[1] <= data.player.rect.bottom)
+        and (data.mousePos[1] >= data.player.rect.top)):
+        drawLaser(data)
+    else:
+        updateGunPosition(data)
+    for healthBarList in data.lostEnemyHealthBarsList:
+        healthBarList.draw(data.screen)
+    drawScoresAndStuff(data)
+    #need this to actually display things
+    pygame.display.flip()
+
+def drawReloading(data):
+    cx, cy = data.screenSize[0]/2, data.screenSize[1]/2
+    font = pygame.font.Font(None, 30)
+    text = font.render("Reloading!", True, data.gunColor)
+    #data.screen.blit(rect)
+    data.screen.blit(text, [cx-70,cy-10])
+
+def drawScoresAndStuff(data):
+    drawWeaponsList(data)
+    drawAmmo(data)
+    drawTimePlayedAndKills(data)
+    drawDistance(data)
+
+# a bundle looks like:
+
+# data.smgBundle = [data.smgBulletCount, data.smgMaxBullets, data.smgFR, 
+#                 data.smgDamage, data.smgColor, data.smgBulletSize, 
+#                 data.smgClipSize, data.smgBulletList, data.smgReloadTime,
+#                 data.smgImage, data.smg]
+
+#make the weapons sprites, add them to their own sprites list, 
+#   draw them in order in the top left corner by health
+def drawWeaponsList(data):
+    # xCoord = data.margin
+    highlightSelectedGun(data)
+    data.gun1.draw(data.screen)
+    data.gun2.draw(data.screen)
+    data.gun3.draw(data.screen)
+    data.gun4.draw(data.screen)
+
+def highlightSelectedGun(data):
+    if data.player.gun == data.smg:
+        point = data.smgGun.rect.left, data.gunYCoord*2
+        width, height = data.smgGun.width, data.smgGun.height
+    elif data.player.gun == data.ar:
+        point = data.arGun.rect.left, data.gunYCoord*2
+        width, height = data.arGun.width, data.arGun.height+10
+    elif data.player.gun == data.raygun:
+        point = data.raygunGun.rect.left, data.gunYCoord*2
+        width, height = data.raygunGun.width, data.raygunGun.height+10
+    else:
+        point = data.rocketlauncherGun.rect.left, data.gunYCoord*2
+        width, height = (data.rocketlauncherGun.width, 
+                        data.rocketlauncherGun.height+10)
+    pygame.draw.rect(data.screen, data.gunColor,
+                [point[0], point[1], width, height])
+
+
+def drawAmmo(data):
+    smgAmmoCountPoint = (data.smgGun.rect.left, 
+                data.smgGun.rect.bottom+data.epsilon)
+    font = pygame.font.Font(None, 15)
+    msg = "%d/%d" % (len(data.smgBulletList), 0)
+    text = font.render(msg, True, data.smgColor) #color
+    data.screen.blit(text, smgAmmoCountPoint)
+    #draw rest of ammo
+    for gunSprite in data.gunSpriteList:
+        if len(gunSprite) != 0:
+            drawGunAmmo(data, font, gunSprite)
+
+def drawGunAmmo(data, font, gunSprite):
+    if data.arGun in gunSprite:
+        gun = data.arGun
+        bulletList = data.arBulletList
+        color = data.arColor
+        maxBullets = data.arMaxBullets
+    elif data.raygunGun in gunSprite:
+        gun = data.raygunGun
+        bulletList = data.raygunBulletList
+        color = data.raygunColor
+        maxBullets = data.raygunMaxBullets
+    elif data.rocketlauncherGun in gunSprite:
+        gun = data.rocketlauncherGun
+        bulletList = data.rocketlauncherBulletList
+        color = data.rocketlauncherColor
+        maxBullets = data.rocketlauncherMaxBullets
+    ammoPoint = (gun.rect.left, gun.rect.bottom+data.epsilon)
+    msg = "%d/%d" % (len(bulletList), maxBullets)
+    text = font.render(msg, True, color)
+    data.screen.blit(text, ammoPoint)
+
+# def drawGun3Ammo(data, font):
+#     if data.arGun in data.gun3:
+#         gun = data.arGun
+#         bulletList = data.arBulletList
+#         color = data.arColor
+#         maxBullets = data.arMaxBullets
+#     elif data.raygunGun in data.gun3:
+#         gun = data.raygunGun
+#         bulletList = data.raygunBulletList
+#         color = data.raygunColor
+#         maxBullets = data.raygunMaxBullets
+#     elif data.rocketlauncher in data.gun3:
+#         bun = data.rocketlauncherGun
+#         bulletList = data.rocketlauncherBulletList
+#         color = data.rocketlauncherColor
+#         maxBullets = data.rocketlauncherMaxBullets
+#     ammoPoint = (gun.rect.left, gun.rect.bottom+data.epsilon)
+#     msg = "%d/%d" % (len(bulletList), maxBullets)
+#     text = font.render(msg, True, color)
+#     data.screen.blit(text, ammoPoint)
+
+
+
+
+
+    # xCoord, yCoord = data.margin, data.gunYCoord*2 + data.epsilon
+    # gunColor = data.smgColor
+    # font = pygame.font.Font(None, 15)
+    # #how many of a gun has been shot over how much the max bullets is
+    # if bundle[9] == data.smgImage:
+    #     #0 means uncountable
+    #     maxBullets = 0
+    # else:
+    #     maxBullets = bundle[1]
+    # msg = "%d/%d" % (len(bundle[7]), maxBullets)
+    # xCoord += 3*data.margin
+
+def drawTimePlayedAndKills(data):
+    timePlayed = time.time() - data.startTime - data.timePaused
+    font = pygame.font.Font(None, 20)
+    msg = "Time Survived: %d" % int(round(timePlayed))
+    text = font.render(msg, True, data.yellow)
+    rightSide = (data.screenSize[0]-150, data.margin)
+    data.screen.blit(text, rightSide)
+    kills = data.kills
+    msg = "Kills: %d" % kills
+    text = font.render(msg, True, data.yellow)
+    mid = data.screenSize[0]/2 - 35, data.margin
+    data.screen.blit(text, mid)
+
+#1 meter is 10 pixels
+def drawDistance(data):
+    distance = int(round(data.distance/10.0))
+    font = pygame.font.Font(None, 20)
+    msg = "Distance Traveled: %dm" % distance
+    text = font.render(msg, True, data.yellow)
+    mid = (data.screenSize[0]/2 - 80, data.margin*2)
+    data.screen.blit(text, mid)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""UPDATES"""
+
+def updateGunPosition(data):
+    if ((data.player.gun == data.smg) or 
+        (data.player.gun == data.rocketlauncher)):
+        #y-distance
+        displacement = 15
+    elif ((data.player.gun == data.ar) or
+        (data.player.gun == data.raygun)):
+        displacement = 10
+    data.player.gun.rect.centery = data.player.rect.centery-displacement
+    if data.player.gun != data.raygun:
+        gunHandleOffBy = 0
+    else:
+        #he's really facing to the right, so shift it to the left
+        if data.gunPointsLeft == False:
+            gunHandleOffBy = -15
+        #shift the ray gun to the right
+        else:
+            gunHandleOffBy = +15
+    #facing right
+    if (data.mousePos[0] >= data.player.rect.left):
+        if data.gunPointsLeft == False:
+            data.player.gun.rect.left = data.player.rect.right+gunHandleOffBy
+        else:
+            #fix the floating gun
+            data.player.gun.rect.right = data.player.rect.left+gunHandleOffBy
+    else:    
+        data.player.gun.rect.right = data.player.rect.left+gunHandleOffBy
+    
+
+
+#reset trackKills for the gun pick ups so that way the player can
+#   keep picking up weapons
+def resetTrackKills(data):
+    data.thirdGunPickUp = False
+    data.secondGunPickUp = False
+    data.firstGunPickUp = False
+    data.trackKills = 0
+
+#same type of update as updatePlayerHealth
+def updateEnemyHealth(data, enemy, damageDone):
+    enemy.health -= damageDone
+    height = data.skinnyHealthBarSize
+    if isinstance(enemy, NoobCopper): totalHealth = data.noobCopperHealth
+    elif isinstance(enemy, JetFighter): totalHealth = data.jetFighterHealth
+    elif isinstance(enemy, FootSoldier): totalHealth = data.footSoldierHealth
+    length = enemy.healthBar.length*float(damageDone)/totalHealth
+    # colorIndex = random.randint(0, len(data.colorList)-1)
+    # color = data.colorList[colorIndex]
+    color = data.black
+    #individual black health bars indicating how much health has been lost
+    enemyHealthLostBar = EnemyHealthBar(length, height, color)
+    enemyHealthLostBar.rect.bottom = enemy.healthBar.rect.bottom
+    enemyHealthLostBar.rect.left = enemy.nextHealthLossRectLeft
+    #a list/spriteGroup of lostHealthBars per enemy
+    enemy.lostHealthBarList.add(enemyHealthLostBar)
+    data.lostEnemyHealthBarsList.append(enemy.lostHealthBarList)
+    if enemy.health <= 0:
+        killEnemy(data, enemy, damageDone)
+
+def killEnemy(data, enemy, damageDone):
+    data.kills += 1
+    data.trackKills += 1
+    data.spawnEnemy = True
+    #so players can get more weapons
+    if data.trackKills > data.gunSpawnVals[5]:
+        resetTrackKills(data)
+    data.enemyList.remove(enemy)
+    data.spritesList.remove(enemy)
+    #removing red health bar
+    data.spritesList.remove(enemy.healthBar)
+    #removing black 'lost' health bars
+    data.lostEnemyHealthBarsList.remove(enemy.lostHealthBarList)
+    for hBar in enemy.lostHealthBarList:
+        enemy.lostHealthBarList.remove(hBar)   
+
+def removeCorrespondingBlackBars(data, bar):
+    if bar.color == data.red:
+        removeBlackBarsFromHealthBar(data, bar)
+    elif bar.color == data.blue:
+        removeBlackBarsFromAntiGravBar(data, bar)
+
+def removeBlackBarsFromAntiGravBar(data, bar):
+    #last in, first out
+    blackBarsLength = 0
+    #go backwards
+    for i in xrange(len(data.orderedUsedAntiGravList)-1, -1, -1):
+        blackBar = data.orderedUsedAntiGravList[i]
+        blackBarsLength += blackBar.length
+        #remove all the ones that make up the pick up bar
+        if blackBarsLength <= bar.length:
+            if data.antiGravBlackBar in data.spritesList:
+                data.spritesList.remove(data.antiGravBlackBar)
+                data.spritesList.add(data.playerAntiGravityBar)
+            #update where to start drawing the next black bar
+            data.nextAntiGravLossRectRight = blackBar.rect.right
+            data.orderedUsedAntiGravList.remove(blackBar)
+            data.usedAntiGravList.remove(blackBar)
+        else:
+            break
+
+def removeBlackBarsFromHealthBar(data, bar):
+    #last in, first out
+    blackBarsLength = 0
+    #go backwards
+    for i in xrange(len(data.orderedLostHealthBarList)-1, -1, -1):
+        blackBar = data.orderedLostHealthBarList[i]
+        blackBarsLength += blackBar.length
+        #remove all the ones that make up the pick up bar
+        if blackBarsLength <= bar.length:
+            if data.antiGravBlackBar in data.spritesList:
+                data.spritesList.remove(data.healthBlackBar)
+                data.spritesList.add(data.playerHealthBar)
+            #update where to start drawing the next black bar
+            data.nextHealthLossRectRight = blackBar.rect.right
+            data.orderedLostHealthBarList.remove(blackBar)
+            data.lostHealthBarList.remove(blackBar)
+        else:
+            break
+
+#draw black bars over
+def updatePlayerHealth(data, damageDone):
+    data.player.health -= damageDone
+    height = data.skinnyHealthBarSize
+    totalHealth = data.playerHealth
+    #replace fraction of the bar with black to symbolize losing health
+    length = data.playerHealthBar.length*damageDone/float(totalHealth)
+    color = data.black
+    playerHealthLostBar = PlayerHealthBar(
+                length, height, color)
+    playerHealthLostBar.rect.top = data.margin
+    playerHealthLostBar.rect.right = data.nextHealthLossRectRight
+    #where to position next health loss black bar
+    data.nextHealthLossRectRight = playerHealthLostBar.rect.left
+    #game over
+    if data.player.health <= 0:
+        makeFullBlackBar(data, "health")
+        data.spritesList.remove(data.playerHealthBar)
+        data.mode = "End Menu"
+    #cover up the entire bar and nothing more
+    if playerHealthLostBar.rect.left >= data.margin: 
+        data.lostHealthBarList.add(playerHealthLostBar)
+        #last in first out when regaining back health
+        data.orderedLostHealthBarList += [playerHealthLostBar]
+    #spriteLists (groups) are unordered so draw healthBar 
+    #   losses after everything else
+
+#player is holding shift 
+def updateAntiGravityBar(data):
+    height = data.skinnyHealthBarSize
+    totalTime = data.antiGravityTimeLimit
+    #fraction of the bar is time pressing shift / totalTime, 
+    #   called every about 1 second
+    holdingShift = 1.1
+    length = data.playerAntiGravityBar.length*holdingShift/float(totalTime)
+    color = data.black
+    antiGravUsedBar = PlayerHealthBar(length, height, color)
+    antiGravUsedBar.rect.bottom = data.margin
+    antiGravUsedBar.rect.right = data.nextAntiGravLossRectRight
+    data.nextAntiGravLossRectRight = antiGravUsedBar.rect.left
+    # if data.antiGravityTimeLeft <=  1: #1 second left
+    #     makeFullBlackBar(data, "grav")
+    if antiGravUsedBar.rect.left >= data.margin:
+        data.usedAntiGravList.add(antiGravUsedBar)
+        data.orderedUsedAntiGravList += [antiGravUsedBar]
+
+def makeFullBlackBar(data, healthOrGrav):
+    length, height = 200, data.skinnyHealthBarSize
+    color = data.black
+    totalHealth = data.playerHealth
+    blackBar = PlayerHealthBar(
+                length, height, color, totalHealth)
+    blackBar.rect.left = data.margin
+    if healthOrGrav == "health":
+        blackBar.rect.top = data.margin 
+        data.healthBlackBar = blackBar
+        data.spritesList.add(data.healthBlackBar)
+    elif healthOrGrav == "grav":
+        blackBar.rect.bottom = data.margin
+        data.antiGravBlackBar = blackBar
+        data.spritesList.add(data.antiGravBlackBar)
+        data.spritesList.remove(data.playerAntiGravityBar)
+
+def updateBullets(data):
+    for bullet in data.bulletList:
+        #we have a slope
+        if bullet.velo[1] != False:
+            bullet.rect = bullet.rect.move(bullet.velo)
+        #bullet goes straight up or straight down
+        else:
+            #false bullets
+            if (data.player.rect.centery - data.mousePos[1]) == 0:
+                data.bulletList.remove(bullet)
+                data.spritesList.remove(bullet)
+            else:
+                bullet.rect.x = data.player.rect.centerx
+                tmp = bullet.xVelo
+                #firing up or down
+                bullet.xVelo = (tmp if data.mousePos[1] < 
+                            data.player.rect.top else -tmp)
+                bullet.rect.top = (data.player.rect.bottom if bullet.xVelo ==
+                                                 -tmp else bullet.rect.top)
+                #for shooting straight down
+                bullet.rect = bullet.rect.move(0, -bullet.xVelo)
+    removePlayerBullets(data)
+
+
+def removePlayerBullets(data):
+    for bullet in data.bulletList:
+        if ((bullet.rect.left > data.screenSize[0]) or (bullet.rect.bottom < 0) 
+            or (bullet.rect.right < 0)or(bullet.rect.top>data.screenSize[1])):
+            data.bulletList.remove(bullet)
+            data.spritesList.remove(bullet)
+
+def updatePlatforms(data):
+    for platform in data.platformList:
+        if platform.rect.right < 0:
+            data.platformList.remove(platform)
+            data.spritesList.remove(platform)
+
+
+def updateEnemies(data):
+    for enemy in data.enemyList:
+        moveEnemyLostHealthBars(data, enemy)
+        if enemy.rect.right < 0:
+            data.enemyList.remove(enemy)
+            data.spritesList.remove(enemy)
+            data.spritesList.remove(enemy.healthBar)
+            #remove black 'damage' bars repping health lost
+            for hBar in enemy.lostHealthBarList:
+                enemy.lostHealthBarList.remove(hBar)
+            data.spawnEnemy = True   
+    # if len(data.enemyList) < 6:
+    #     createEnemies(data)
+
+def updateEnemyBullets(data):
+    for bullet in data.enemyBulletList:
+        bullet.rect = bullet.rect.move(bullet.velo)
+        if bullet.rect.right < 0 or bullet.rect.bottom < 0:
+            data.enemyBulletList.remove(bullet)
+            data.spritesList.remove(bullet)
+        elif ((bullet.rect.left > data.screenSize[0]) or 
+            (bullet.rect.top > data.screenSize[1])):
+            data.enemyBulletList.remove(bullet)
+            data.spritesList.remove(bullet)
+
+def updateBarPickUps(data):
+    for bar in data.barPickUps:
+        if bar.rect.right < 0:
+            if bar.color == data.red:
+                data.healthBarPickUpIsOnScreen = False
+            elif bar.color == data.blue:
+                data.antiGravBarIsOnScreen = False
+            data.barPickUps.remove(bar)
+            data.spritesList.remove(bar)
+
+def updateGunPickUps(data):
+    for gun in data.gunPickUps:
+        if gun.rect.right < 0:
+            resetGunPickUpBools(data, gun)
+            data.spritesList.remove(gun)
+            data.gunPickUps.remove(gun)
+            data.gunHasSpawned = False
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""ENEMY MOVEMENT"""
+
+def moveEnemies(data):
+    for enemy in data.enemyList:
+        if isinstance(enemy, JetFighter):
+            moveJetFighter(data, enemy)
+        else:
+            enemy.rect = enemy.rect.move(enemy.velo)
+            enemy.healthBar.rect = enemy.healthBar.rect.move(enemy.velo)
+            #footSoldiers have to stay on their platform
+            if isinstance(enemy, FootSoldier):
+                if ((enemy.rect.left < enemy.platform.rect.left) or 
+                    (enemy.rect.right > enemy.platform.rect.right)):
+                    enemy.velo[0] = -enemy.velo[0]
+        # update position for where the lost health bar should be
+        #   only if enemy is moving at its normal velocity
+        if data.shiftingEverythingLeft == False:
+            enemy.nextHealthLossRectLeft = enemy.healthBar.rect.left
+
+def moveJetFighter(data, jetFighter):
+    #move it left if it's not looping
+    if jetFighter.looping == False:
+        jetFighter.rect.centerx += jetFighter.velo[0]
+        jetFighter.rect.centery += jetFighter.velo[1]
+        jetFighter.healthBar.rect.centerx = jetFighter.rect.centerx
+        jetFighter.healthBar.rect.bottom = (
+                        jetFighter.rect.top-data.skinnyHealthBarSize)
+    checkDistanceFromRightLoop(data, jetFighter)
+    checkDistanceFromMidLoop(data, jetFighter)
+    checkDistanceFromLeftLoop(data, jetFighter)
+
+def checkDistanceFromRightLoop(data, jetFighter):
+    #distance from jetFighter to right loop
+    rightLoopDistance = ((data.rightLoopCx-jetFighter.rect.centerx)**2 + 
+                        (data.loopsCy-jetFighter.rect.centery)**2)**0.5
+    if rightLoopDistance <= data.loopRadius + data.epsilon:
+        checkIfFighterLoops(data, jetFighter, data.rightLoopCx, data.loopsCy)
+
+def checkDistanceFromMidLoop(data, jetFighter):
+    midLoopDistance = ((data.midLoopCx-jetFighter.rect.centerx)**2 +
+                        (data.loopsCy-jetFighter.rect.centery)**2)**0.5
+    if midLoopDistance <= data.loopRadius + data.epsilon:
+        #call the loop functions 40 times per one full loop, but 
+        #   if we are shifting everything left, then we call loop functions 
+        #   more because of the increase in velocity so we have a possiblilty
+        #   of looping this loop once or twice
+        if jetFighter.loopCounter >= 30 and jetFighter.loopCounter < 80:
+            #to start the loop at the bottom point
+            jetFighter.loopingAtLeftPoint = False
+        checkIfFighterLoops(data, jetFighter, data.midLoopCx, data.loopsCy)
+
+def checkDistanceFromLeftLoop(data, jetFighter):
+    leftLoopDistance = ((data.leftLoopCx-jetFighter.rect.centerx)**2 +
+                        (data.loopsCy-jetFighter.rect.centery)**2)**0.5
+    if leftLoopDistance <= data.loopRadius + data.epsilon:
+        #loop at most 5
+        if jetFighter.loopCounter >= 80 and jetFighter.loopCounter < 160:
+            #to start the loop at the bottom point
+            jetFighter.loopingAtLeftPoint = False
+        checkIfFighterLoops(data, jetFighter, data.leftLoopCx, data.loopsCy)
+
+# break up the loop into four parts, arc from bottom to left,
+#   left to top, top to right, and right to bottom, and then continue the path
+def checkIfFighterLoops(data, jetFighter, loopCx, loopCy):
+    loopBottom = (loopCx, loopCy+data.loopRadius)
+    loopLeft = (loopCx-data.loopRadius, loopCy)
+    rightLoopTop = (loopCx, loopCy-data.loopRadius)
+    loopRight = (loopCx+data.loopRadius, loopCy)
+    jetCenter = (jetFighter.rect.centerx, jetFighter.rect.centery)
+
+    #at the bottom point of the circle
+    if ((abs(loopBottom[0]-jetCenter[0]) <= 8*data.epsilon) and 
+        (abs(loopBottom[1]-jetCenter[1]) <= 8*data.epsilon) and
+        jetFighter.loopingAtLeftPoint == False):
+        #on the bottom half of the semi circle
+        loopBottomHalf = True
+        loopJetFighter(data, jetFighter, loopBottomHalf, loopCx, loopCy)
+
+    #at the left point of the circle
+    elif ((abs(loopLeft[0]-jetCenter[0]) <= 8*data.epsilon) and 
+        (abs(loopLeft[1]-jetCenter[1]) <= 8*data.epsilon)):
+        loopBottomHalf = False
+        #so we don't continuously go on the loop
+        jetFighter.loopingAtLeftPoint = True
+        loopJetFighter(data, jetFighter, loopBottomHalf, loopCx, loopCy)
+
+    #at the top point of the cirlce
+    elif ((abs(rightLoopTop[0]-jetCenter[0]) <= 8*data.epsilon) and 
+        (abs(rightLoopTop[1]-jetCenter[1]) <= 8*data.epsilon)):
+        loopBottomHalf = False
+        loopJetFighter(data, jetFighter, loopBottomHalf, loopCx, loopCy)
+
+    #at the right point of the cirlce after one loop
+    elif ((abs(loopRight[0]-jetCenter[0]) <= 8*data.epsilon) and 
+        (abs(loopRight[1]-jetCenter[1]) <= 8*data.epsilon)):
+        loopBottomHalf = True
+        loopJetFighter(data, jetFighter, loopBottomHalf, loopCx, loopCy)
+        #continue along the tangent path
+        if ((abs(loopBottom[0]-jetCenter[0]) <= 8*data.epsilon) and 
+        (abs(loopBottom[1]-jetCenter[1]) <= 8*data.epsilon)):
+            jetFighter.rect.centery = data.loopsCy+data.loopRadius
+            jetFighter.looping = False 
+            # finished looping the right one
+            
+
+
+def loopJetFighter(data, jetFighter, loopBottomHalf, loopCx, loopCy):
+    jetFighter.looping = True
+    jetFighter.loopCounter += 1
+    if loopBottomHalf == True:
+        loopJetFighterBottomHalf(data, jetFighter, loopCx, loopCy)
+    else:
+        loopJetFighterTopHalf(data, jetFighter, loopCx, loopCy)
+
+def loopJetFighterBottomHalf(data, jetFighter, loopCx, loopCy):
+    #velo[0] is negative and enemy needs to move left
+    jetFighter.rect.centerx += jetFighter.velo[0]
+    jetFighter.healthBar.rect.centerx = jetFighter.rect.centerx
+    x = jetFighter.rect.centerx
+    r = data.loopRadius
+    k = loopCx
+    h = loopCy
+    #equation of circle, (x-k)**2 + (y-h)**2 = r**2
+    jetFighter.rect.centery = (r**2 - (x-k)**2)**0.5 + h
+    jetFighter.healthBar.rect.bottom = (
+                        jetFighter.rect.top-data.skinnyHealthBarSize)
+
+def loopJetFighterTopHalf(data, jetFighter, loopCx, loopCy):
+    #velo[0] is negative and enemy needs to move right
+    jetFighter.rect.centerx -= jetFighter.velo[0]
+    jetFighter.healthBar.rect.centerx = jetFighter.rect.centerx
+    x = jetFighter.rect.centerx
+    r = data.loopRadius
+    k = loopCx
+    h = loopCy
+    #equation of circle, (x-k)**2 + (y-h)**2 = r**2
+    jetFighter.rect.centery = -(r**2 - (x-k)**2)**0.5 + h
+    jetFighter.healthBar.rect.bottom = (
+                        jetFighter.rect.top-data.skinnyHealthBarSize)
+
+
+#moving the damage health bars along with everything
+def moveEnemyLostHealthBars(data, enemy):
+    if isinstance(enemy, JetFighter):
+        for hBar in enemy.lostHealthBarList:
+            hBar.rect.centery = enemy.healthBar.rect.centery
+        moveJetFighterBlackLostHealthBars(data, enemy)
+    else:
+        healthBarList = enemy.lostHealthBarList
+        # initialize
+        furthestRight = -10000000
+        # only if enemy is moving at its normal velocity
+        if data.shiftingEverythingLeft == False:
+            for healthBar in healthBarList:
+                healthBar.rect = healthBar.rect.move(enemy.velo)
+                # update position for where the lost health bar should be
+                if healthBar.rect.right > furthestRight:
+                    furthestRight = healthBar.rect.right
+                    enemy.nextHealthLossRectLeft = furthestRight
+
+#duplicated to save the black health bars from the lag
+def moveJetFighterBlackLostHealthBars(data, enemy):
+    moveBlackHealthBarsLeft(data, enemy)
+    healthBarList = enemy.lostHealthBarList
+    # initialize
+    furthestRight = -10000000
+    # only if enemy is moving at its normal velocity
+    if data.shiftingEverythingLeft == False:
+        for healthBar in healthBarList:
+            #healthBar.rect = healthBar.rect.move(enemy.velo)
+            # update position for where the lost health bar should be
+            if healthBar.rect.right > furthestRight:
+                furthestRight = healthBar.rect.right
+                enemy.nextHealthLossRectLeft = furthestRight
+
+#duplicated to save the black health bars from the lag
+def moveBlackHealthBarsLeft(data, enemy):
+    leftRedHealthBarPos = enemy.healthBar.rect.left
+    #initialize
+    furthestLeft = data.screenSize[0]*1000
+    #unordered sprite group so we have to find it manually
+    for healthBar in enemy.lostHealthBarList:
+        if healthBar.rect.left < furthestLeft:
+            furthestLeft = healthBar.rect.left
+    displacement = furthestLeft - leftRedHealthBarPos
+    for healthBar in enemy.lostHealthBarList:
+        healthBar.rect.left -= displacement
+
+#try to keep the black bars in line with the red health bar
+def moveLostFootSoldierHealthBars(data):
+    if data.shiftingEverythingLeft == False:
+        for enemy in data.enemyList:
+            if isinstance(enemy, FootSoldier):
+                leftRedHealthBarPos = enemy.healthBar.rect.left
+                #initialize
+                furthestLeft = data.screenSize[0]*1000
+                #unordered sprite group so we have to find it manually
+                for healthBar in enemy.lostHealthBarList:
+                    if healthBar.rect.left < furthestLeft:
+                        furthestLeft = healthBar.rect.left
+                if furthestLeft != enemy.rect.left:
+                    displacement = furthestLeft - leftRedHealthBarPos
+                    for healthBar in enemy.lostHealthBarList:
+                        #for clarity
+                        #pos if furthestLeft is to the right of redHealth
+                        if displacement > 0:
+                            healthBar.rect.left -= displacement
+                        #neg if furthestLeft is to the left of redHealth
+                        elif displacement < 0:
+                            healthBar.rect.left -= displacement
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""COLLISIONS"""
+
+def gunPickUpCollisions(data):
+    gunsPickedUp = pygame.sprite.spritecollide(data.player,
+                    data.gunPickUps, False)
+    if len(gunsPickedUp) != 0:
+        #newGun is a bar
+        for newGun in gunsPickedUp:
+            if newGun.bundle not in data.availableGunList:
+                #this is a sprite for the top left corner
+                newGun.bundle[11].rect.left = data.nextGunXCoord
+                newGunBundleGun = newGun.bundle[11]
+                findWhichGunItIs(data, newGunBundleGun)
+                data.nextGunXCoord = newGun.bundle[11].rect.right + data.margin
+                data.availableGunList += [newGun.bundle]
+                if len(data.availableGunList) == 2:
+                    #add to the top left
+                    data.gun2.add(newGun.bundle[11])
+                elif len(data.availableGunList) == 3:
+                    data.gun3.add(newGun.bundle[11])
+                else:
+                    if len(data.gun4) == 0:
+                        data.gun4.add(newGun.bundle[11])
+                findPreviousGunBulletList(data)
+                getNewGunAttributes(data, newGun)
+                #because the player doens't have that gun, clip is full!
+                getNewGunBulletList(data)
+            else:
+                #gun is already available so give him more ammo
+                getMoreAmmo(data, newGun)
+            data.gunPickUps.remove(newGun)
+            data.spritesList.remove(newGun)
+        #reset
+        data.gunHasSpawned = False
+        data.reloading = False
+
+def findWhichGunItIs(data, newGunBundleGun):
+    if data.arGun == newGunBundleGun:
+        gun = data.arGun
+    elif data.raygunGun == newGunBundleGun:
+        gun = data.raygunGun
+    elif data.rocketlauncherGun == newGunBundleGun:
+        gun = data.rocketlauncherGun
+    gun.rect.left = newGunBundleGun.rect.left
+
+def getNewGunAttributes(data, newGunBundle):
+    if isinstance(newGunBundle, GunPickUpBar):
+        newGunBundle = newGunBundle.bundle
+    data.gunBulletCount = newGunBundle[0]
+    data.gunMaxBullets = newGunBundle[1]
+    data.gunFR = newGunBundle[2]
+    data.gunDamage = newGunBundle[3]
+    data.gunColor = newGunBundle[4]
+    data.gunBulletSize = newGunBundle[5]
+    data.gunClipSize = newGunBundle[6]
+    #newGunBundle's bullet list is the real smg/ar/raygun/rocketlauncher 
+    #bullet lists which holds every bullet that those types of guns have fired 
+    data.gunReloadTime = newGunBundle[8] # seconds
+    data.gunImage = newGunBundle[9]
+    data.spritesList.remove(data.player.gun)
+    data.player.gun = newGunBundle[10]
+    # if the player is aiming left, gun spawns left
+    # if the player is aiming right, gun spawns right
+    getGunOrientation(data)
+    data.spritesList.add(data.player.gun)
+
+def getGunOrientation(data):
+    #aiming left
+    if data.mousePos[0] < data.player.rect.left:
+        if ((data.player.gun == data.smg and data.smgFacingLeft == False) or
+            (data.player.gun == data.ar and data.arFacingLeft == False) or
+            (data.player.gun == data.raygun and data.raygunFacingLeft == False)
+            or (data.player.gun == data.rocketlauncher and
+                (data.rocketlauncherFacingLeft == False))):
+            flipGunPos(data)
+    #aiming right
+    else:
+        if ((data.player.gun == data.smg and data.smgFacingLeft == True) or
+            (data.player.gun == data.ar and data.arFacingLeft == True) or
+            (data.player.gun == data.raygun and data.raygunFacingLeft == True)
+            or (data.player.gun == data.rocketlauncher and
+                (data.rocketlauncherFacingLeft == True))):
+            flipGunPos(data)
+
+#can't just delete the amount from the bullet list
+#   so get extended mags and a round drum, double the size
+def getMoreAmmo(data, newGun):
+    #identify gun by fire rate
+    FR = newGun.bundle[2]
+    if FR == data.arFR:
+        newGun.bundle[1] += data.arMaxBullets
+        data.arMaxBullets += data.arMaxBullets
+        #if he's holding the gun he's getting ammo for, change the color back
+        if data.gunFR == data.arFR:
+            data.gunColor = data.arColor
+    elif FR == data.raygunFR:
+        newGun.bundle[1] += data.raygunMaxBullets
+        data.raygunMaxBullets += data.raygunMaxBullets
+        if data.gunFR == data.raygunFR:
+            data.gunColor = data.raygunColor 
+    elif FR == data.rocketlauncherFR:
+        newGun.bundle[1] += data.rocketlauncherMaxBullets
+        data.rocketlauncherMaxBullets += data.rocketlauncherMaxBullets
+        if data.rocketlauncherFR == data.gunFR:
+            data.gunColor = data.rocketlauncherColor
+
+def playerBarPickUpCollisions(data):
+    barsCollidedWith = pygame.sprite.spritecollide(data.player,
+                        data.barPickUps, False)
+    if len(barsCollidedWith) != 0:
+        for bar in barsCollidedWith:
+            #antiGravity
+            if bar.color == data.blue:
+                data.antiGravBarIsOnScreen = False
+                data.antiGravityTimeLeft += bar.amount
+                data.antiGravBarAvail = True
+                if data.antiGravityTimeLeft > data.antiGravityTimeLimit:
+                    data.antiGravityTimeLeft = data.antiGravityTimeLimit
+            #health bar
+            elif bar.color == data.red:
+                data.healthBarPickUpIsOnScreen = False
+                data.player.health += bar.amount
+                if data.player.health > data.playerHealth:
+                    data.player.health = data.playerHealth
+                #replenish health bar #replenish the blue antigrav bar
+            #show the replenish happening by removing the black bars that
+            #   make up about the same length as the picked up bar
+            removeCorrespondingBlackBars(data, bar)
+            data.barPickUps.remove(bar)
+            data.spritesList.remove(bar)
+
+#player runs into enemy
+def playerEnemyCollisions(data):
+    enemiesCollidedWith = pygame.sprite.spritecollide(
+                    data.player, data.enemyList, False)
+    if len(enemiesCollidedWith) != 0:
+        for enemy in enemiesCollidedWith:
+            damageDone = enemy.health
+            updatePlayerHealth(data, damageDone)
+            data.spritesList.remove(enemy)
+            data.spritesList.remove(enemy.healthBar)
+            data.enemyList.remove(enemy)
+            data.kills += 1
+            #for the gun pick ups without messing with the actual kills
+            data.trackKills += 1
+            data.spawnEnemy = True
+            if data.trackKills > data.gunSpawnVals[5]:
+                resetTrackKills(data)
+            for hBar in enemy.lostHealthBarList:
+                enemy.lostHealthBarList.remove(hBar) 
+
+#player hits a platform
+def playerPlatformCollisions(data):
+    platformsOn = pygame.sprite.spritecollide(data.player,
+                                data.platformList, False)
+    #check where the player collides
+    if len(platformsOn) != 0:
+        checkPlayerRelationToPlatorms(data, platformsOn)
+    else:
+        correctBooleans(data)
+
+def checkPlayerRelationToPlatorms(data, platformsOn):
+    for platform in platformsOn:
+        if (abs(platform.rect.top - data.player.rect.bottom) 
+                                            <= data.epsilon+15 and 
+            (platform.rect.left <= data.player.rect.right and 
+              data.player.rect.left <= platform.rect.right)):
+            checkPlayerStanding(data, platformsOn, platform)
+
+        elif ((platform.rect.left <= data.player.rect.centerx 
+                                    <= platform.rect.right) and
+            abs(data.player.rect.top - platform.rect.bottom) 
+                                            <= data.epsilon):
+            checkHitPlatFromBelow(data, platformsOn, platform)
+
+        elif ((data.player.rect.right > platform.rect.left) and
+            (data.player.rect.left < platform.rect.left) and
+            ((data.player.rect.bottom > platform.rect.top) and 
+            (data.player.rect.top < platform.rect.bottom))):
+            checkHitPlatsLeftSide(data, platformsOn, platform)
+            #don't squeeze between two platforms
+            break
+
+        elif ((data.player.rect.left < platform.rect.right) and
+            (data.player.rect.bottom > platform.rect.top) and
+            (data.player.rect.right > platform.rect.right)):
+            checkHitPlatsRightSide(data, platformsOn, platform)
+            #don't squeeze between two platforms
+            break
+
+        else:
+            #don't fall through platforms that are too close
+            checkPlayerStanding(data, platformsOn, platform)
+
+#stand on platform
+def checkPlayerStanding(data, platformsOn, platform):
+    #+2 so it still counts as colliding
+    data.player.rect.bottom = platform.rect.top+2
+    data.player.velo[0] = 0
+    data.inMidAir = False
+    data.onPlatform = True
+
+#hitting a platform from below
+def checkHitPlatFromBelow(data, platformsOn, platform):
+    data.player.rect.top = platform.rect.bottom
+    data.player.velo[1] = -data.player.velo[1]
+
+#hit the platform on player's right
+def checkHitPlatsLeftSide(data, platformsOn, platform):
+    data.player.rect.right = platform.rect.left
+    data.currTime = time.time()
+    data.player.velo[0] = 0
+    if data.inMidAir == False:
+        data.player.velo[1] = -0.001
+
+#hit platform on player's left
+def checkHitPlatsRightSide(data, platformsOn, platform):
+    data.player.rect.left = platform.rect.right
+    data.currTime = time.time()
+    data.player.velo[0] = 0
+    if data.inMidAir == False:
+        data.player.velo[1] = -0.001
+
+#if a player is not on a platform, then he's in mid air
+def correctBooleans(data):
+    #for onPlatform and inMidAir booleans
+    for platform in data.platformList:
+        if ((data.player.rect.bottom == platform.rect.top) and
+            (platform.rect.left <= data.player.rect.centerx 
+                                    <= platform.rect.right)):
+            #make player collide with top of platform
+            data.player.rect.bottom = platform.rect.top + 2
+            data.onPlatform = True
+            data.inMidAir = False
+            break
+        else:
+            data.onPlatform = False
+            data.inMidAir = True
+
+#enemy's bullets strike player
+def enemyBulletCollisions(data):
+    for bullet in data.enemyBulletList:
+        platformsHit = pygame.sprite.spritecollide(bullet, 
+                                data.platformList, False)
+        playersHit = pygame.sprite.spritecollide(bullet,
+                                data.playerList, False)
+        if len(platformsHit) != 0:
+            data.enemyBulletList.remove(bullet)
+            data.spritesList.remove(bullet)
+        if len(playersHit) != 0:
+            damageDone = bullet.damage
+            updatePlayerHealth(data, damageDone)
+            data.enemyBulletList.remove(bullet)
+            data.spritesList.remove(bullet)
+
+
+def bulletCollisionDetector(data):
+    for bullet in data.bulletList:
+        #False so the enemies don't 'die' right away
+        enemiesHit = pygame.sprite.spritecollide(bullet, data.enemyList, False)
+        platformsHit = pygame.sprite.spritecollide(bullet, 
+                                data.platformList, False)
+        if (len(enemiesHit) != 0) or len(platformsHit) != 0:
+            #ray gun beams don't disintegrate or get lodged into enemies
+            if bullet.color == data.pink:
+                pass 
+            #rocket launchers explode and hit nearby enemies
+            elif bullet.color == data.darkGreen:
+                rocketLauncherBlastRadiusDamage(data, bullet, 
+                                    enemiesHit, platformsHit)
+                data.bulletList.remove(bullet)
+                data.spritesList.remove(bullet)
+            #normal bullets
+            else:
+                data.bulletList.remove(bullet)
+                data.spritesList.remove(bullet)
+            if (len(platformsHit) != 0):
+                findNewRightMostPlat(data)
+        for enemy in enemiesHit:
+            if bullet.color != data.darkGreen:
+                damageDone = data.gunDamage
+                updateEnemyHealth(data, enemy, damageDone)
+
+#if any enemy is within a radius of the hit enemy or platform, 
+#   the enemies get damaged
+def rocketLauncherBlastRadiusDamage(data, bullet, enemiesHit, platformsHit):
+    #find the where the center of the blast is
+    if len(enemiesHit) >= 1:
+        centerOfBlast = enemiesHit[0]
+    #a platform must have been hit
+    else:
+        centerOfBlast = platformsHit[0]
+    cx, cy = centerOfBlast.rect.centerx, centerOfBlast.rect.centery
+    for enemy in data.enemyList:
+        distance = ((cx-enemy.rect.centerx)**2+(cy-enemy.rect.centery)**2)**0.5
+        if distance <= data.launcherBlastRadius:
+            #twothirds of the damage for blast radius
+            damageDone = int(2.0*data.rocketlauncherDamage/3)
+            #full damage if direct impact
+            if enemy == centerOfBlast:
+                damageDone = data.rocketlauncherDamage
+            updateEnemyHealth(data, enemy, damageDone)
+
+#in case we need to keep spawning platforms
+def findNewRightMostPlat(data):
+    #initialize
+    data.rightMostRectPlat = data.player
+    for plat in data.platformList:
+        if plat.rect.right > data.rightMostRectPlat.rect.right:
+            data.rightMostRectPlat = plat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""BULLETS/BOMBS"""
+
+def enemyFireBullets(data):
+    for enemy in data.enemyList:
+        if isinstance(enemy, NoobCopper):
+            noobCopperFireBullets(data, enemy)
+        elif isinstance(enemy, FootSoldier):
+            footSoldierFireBombs(data, enemy)
+        elif isinstance(enemy, JetFighter):
+            jetFighterFireBullets(data, enemy)
+
+def noobCopperFireBullets(data, noobCopper):
+    noobCopper.bulletCount += 1
+    temp = noobCopper.bulletCount
+    width, height = 15, 4
+    color = data.green
+    damage = 4
+    xVelo, yVelo = -4, 4
+    fireRate = 101
+    if temp % fireRate == 0:
+        copperBullet = NoobCopperBullet(width, height, color, damage, 
+                                        xVelo, yVelo, fireRate)
+        copperBullet.rect.top = noobCopper.rect.bottom 
+        copperBullet.rect.right = noobCopper.rect.left + 30
+        data.enemyBulletList.add(copperBullet)
+        data.spritesList.add(copperBullet)
+
+#fires two bombs at a time, but gravity takes affect so we simulate it
+def footSoldierFireBombs(data, footSoldier):
+    footSoldier.bulletCount += 2
+    temp = footSoldier.bulletCount
+    width, height = 20, 6
+    color = data.orange
+    damage = 8
+    xVelo1, yVelo1 = -4,-4
+    xVelo2, yVelo2 = 4, -4
+    fireRate = 202
+    if temp % fireRate == 0:
+        bomb1 = FootSoldierBomb(width, height, color, damage,
+                                    xVelo1, yVelo1, fireRate)
+        bomb2 = FootSoldierBomb(width, height, color, damage,
+                                    xVelo2, yVelo2, fireRate)
+        bomb1.rect.top = footSoldier.rect.top-2*data.epsilon
+        bomb2.rect.top = footSoldier.rect.top-2*data.epsilon
+        bomb1.rect.centerx = footSoldier.rect.centerx
+        bomb2.rect.centerx = footSoldier.rect.centerx
+        #for the gravity
+        bomb1.time = time.time()
+        bomb2.time = time.time()
+        data.enemyBulletList.add(bomb1)
+        data.enemyBulletList.add(bomb2)
+        data.spritesList.add(bomb1)
+        data.spritesList.add(bomb2)
+
+#jetFighters fire Right at the player
+def jetFighterFireBullets(data, jetFighter):
+    jetFighter.bulletCount += 1
+    temp = jetFighter.bulletCount
+    width, height = 10, 4
+    color = data.lightGray
+    damage = 3
+    jetFighter.xVelo = -7
+    #for the slope
+    Y = (data.player.rect.centery - jetFighter.rect.centery)
+    X = (jetFighter.rect.centerx - data.player.rect.centerx)
+    xVelo = jetFighter.xVelo
+    #scalar factor for the slope is xVelo
+    slope = -xVelo*Y/float(X) if X != 0 else False
+    #right above the player
+    jetFighter.yVelo = slope if slope != False else 1
+    fireRate = 70
+    getOrientation(data, jetFighter, X)
+    if temp % fireRate == 0:
+        jetFighterBullet = JetFighterBullet(width, height, color, damage,
+                                jetFighter.xVelo, jetFighter.yVelo, fireRate)
+        if X >= 0:
+            jetFighterBullet.rect.right = jetFighter.rect.left
+        else:
+            jetFighterBullet.rect.left = jetFighter.rect.right
+        jetFighterBullet.rect.top = jetFighter.rect.bottom
+        data.enemyBulletList.add(jetFighterBullet)
+        data.spritesList.add(jetFighterBullet)
+
+def getOrientation(data, jetFighter, X):
+    #shoot backwards
+    if X < 0:
+        if jetFighter.shootBackwards == False:
+            flip = pygame.transform.flip(jetFighter.image, True, False)
+            jetFighter.image = flip
+        jetFighter.shootBackwards = True
+        jetFighter.xVelo = -jetFighter.xVelo
+        jetFighter.yVelo = -jetFighter.yVelo
+    else:
+        if jetFighter.shootBackwards == True:
+            flip = pygame.transform.flip(jetFighter.image, True, False)
+            jetFighter.image = flip
+            jetFighter.shootBackwards = False
+
+#shoot while holding down the left click
+def playerFireBullets(data):
+    bulletWidth = data.gunBulletSize[0]
+    bulletHeight = data.gunBulletSize[1]
+    bulletVelo = data.bulletXVelo
+    bulletColor = data.gunColor
+    #rise over run
+    Y = (data.player.rect.centery - data.mousePos[1])
+    X = (data.mousePos[0] - data.player.rect.centerx)
+    #slope is off by a scalar factor of about bulletVelo
+    #   lead bullets if aiming far away
+    # - to shoot in direction we're pointing
+    slope = -(float(bulletVelo)+bulletVelo/25.0)*Y/X if X != 0 else False
+    class PlayerBullet(pygame.sprite.Sprite):
+        def __init__(self):
+            pygame.sprite.Sprite.__init__(self)
+            self.image = pygame.Surface([bulletWidth, bulletHeight])
+            self.image.fill(bulletColor)
+            self.rect = self.image.get_rect()
+            self.xVelo = bulletVelo
+            self.yVelo = slope
+            self.color = bulletColor
+    bullet = PlayerBullet()
+    findBulletCoords(data, bullet, slope, Y, X)
+
+def findBulletCoords(data, bullet, slope, Y, X):
+    bullet.rect.x = data.player.rect.centerx + data.player.width/2.0
+    #shoot from front center, or straight above head when X == 0
+    if slope == False:
+        bullet.rect.y = data.player.rect.centery + data.player.height/2.0
+    else:
+        bullet.rect.y = data.player.rect.centery
+    #shoot backwards
+    if X < 0:
+        bullet.xVelo = -bullet.xVelo
+        bullet.yVelo = -bullet.yVelo
+        bullet.rect.x = data.player.rect.centerx - data.player.width/2.0
+    bullet.rect.centerx, bullet.rect.centery = data.laserX0, data.laserY0
+    bullet.velo = [bullet.xVelo, bullet.yVelo]
+    addBulletsToSprites(data, bullet)
+
+def addBulletsToSprites(data, bullet):
+    data.spritesList.add(bullet)
+    data.bulletList.add(bullet) 
+    #this way we can figure out how many bullets each gun has fired
+    #   even with gun cycling, without using aliases
+    if data.gunFR == data.smgFR:
+        data.smgBulletList.add(bullet)
+        data.gunBulletList.add(bullet)
+    elif data.gunFR == data.arFR:
+        data.arBulletList.add(bullet)
+        data.gunBulletList.add(bullet)
+    elif data.gunFR == data.raygunFR:
+        data.raygunBulletList.add(bullet)
+        data.gunBulletList.add(bullet)
+    elif data.gunFR == data.rocketlauncherFR:
+        data.rocketlauncherBulletList.add(bullet)
+        data.gunBulletList.add(bullet)
+
+def drawLaser(data):
+    (laserX0, laserY0, laserX1, laserY1) = getWhereLaserPoints(data)
+    data.laserX0, data.laserY0 = laserX0, laserY0
+    #to show that the player is reloading
+    color = data.gunColor if data.reloading == False else data.white
+    laser = pygame.draw.line(data.screen, color, 
+                    (laserX0, laserY0), (laserX1, laserY1))
+    if data.player.gun == data.smg:
+        bulletsFired = len(data.smgBulletList)
+        maxBullets = data.smgMaxBullets
+    elif data.player.gun == data.ar:
+        bulletsFired = len(data.arBulletList)
+        maxBullets = data.arMaxBullets
+    elif data.player.gun == data.raygun:
+        bulletsFired = len(data.raygunBulletList)
+        maxBullets = data.raygunMaxBullets
+    elif data.player.gun == data.rocketlauncher:
+        bulletsFired = len(data.rocketlauncherBulletList)
+        maxBullets = data.rocketlauncherMaxBullets
+    if data.reloading == False and bulletsFired < maxBullets:
+        drawTarget(data, color, laserX1, laserY1)
+
+def drawTarget(data, color, laserX1, laserY1):
+    #r is radius
+    if data.player.gun == data.smg or data.raygun:
+        r = 5
+    elif data.player.gun == ar:
+        r = 7
+    else:
+        r = 10
+    pygame.draw.ellipse(data.screen, color, 
+                [laserX1-r, laserY1-r, 2*r, 2*r])
+
+def getWhereLaserPoints(data):
+    #point right
+    laserY0 = data.player.rect.centery+data.player.height/4.5
+    laserX0 = (data.player.rect.centerx + data.player.width/2.0
+                                        +data.player.gun.width)
+    if data.gunPointsLeft == True:
+        temp = pygame.transform.flip(data.player.image, True, False)
+        data.player.image = temp
+        flipGunPos(data)
+    data.gunPointsLeft = False
+    #point left
+    if data.mousePos[0] < data.player.rect.left:
+        laserX0 = (data.player.rect.centerx - data.player.width/2.0 
+                                            - data.player.gun.width)
+        data.gunPointsLeft = True
+        #flip horizontally
+        temp = pygame.transform.flip(data.player.image, True, False)
+        data.player.image = temp
+        flipGunPos(data)
+    laserX1 = data.mousePos[0]
+    laserY1 = data.mousePos[1]
+    return (laserX0, laserY0, laserX1, laserY1)
+
+def flipGunPos(data):
+    temp = pygame.transform.flip(data.player.gun.image, True, False)
+    data.player.gun.image = temp
+    if data.player.gun == data.smg:
+        data.smgFacingLeft = not data.smgFacingLeft
+    elif data.player.gun == data.ar:
+        data.arFacingLeft = not data.arFacingLeft
+    elif data.player.gun == data.raygun:
+        data.raygunFacingLeft = not data.raygunFacingLeft
+    else:
+        data.rocketlauncherFacingLeft = not data.rocketlauncherFacingLeft
+    if data.mousePos[0] < data.player.rect.left:
+        if data.player.gun != data.raygun:
+            data.player.gun.rect.right = data.player.rect.left
+        else:
+            data.player.gun.rect.right = data.player.rect.left + 15
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""CREATING STUFF/DRAWING INITIALS"""
+
+def createPlatforms(data):
+    createSlants(data)
+    createRectPlats(data)
+    #createMovingPlats?
+
+def createSlants(data):
+    pass
+
+def createRectPlats(data):
+    data.platCount += 1
+    #class it to add it to spritesList
+    class RectPlat(pygame.sprite.Sprite):
+        def __init__(self, width, height, color=data.cyan, inputImage=None):
+            pygame.sprite.Sprite.__init__(self)
+            if inputImage == None:
+                self.image = pygame.Surface([width, height])
+                self.image.fill(color)
+            else:
+                self.image = pygame.image.load(str(inputImage)).convert()
+                self.image.set_colorkey(data.white)
+            self.rect = self.image.get_rect()
+            self.width = width
+            self.height = height
+    width = random.randint(250,int(data.screenSize[0]/4.0))
+    height = random.randint(50,int(data.screenSize[1]/10.0))
+    data.rectPlat = RectPlat(width, height)
+    #no footSoldier has spawned on the platform yet
+    data.rectPlat.enemySpawned = False
+    data.rectPlat.healthOrGravBarSpawned = False
+    drawRectPlats(data)
+
+def drawRectPlats(data):
+    #starting platforms
+    if data.platMadeFromInit == True:
+        drawStartingPlatforms(data)
+    else:
+        #draw them so the player can reach them
+        data.rectPlat.rect.left = data.screenSize[0]
+        data.rectPlat.rect.bottom = random.randint(data.screenSize[1]/2, 
+                                        data.screenSize[1]-data.margin)
+    data.rectPlat.velo = [0,0]
+    if data.platCount > 3:
+        data.platMadeFromInit = False
+        checkPlatformPlacement(data)
+    #auto add the first 3
+    else:
+        data.platformList.add(data.rectPlat)
+        data.spritesList.add(data.rectPlat)
+    #create 3 initial ones
+    if data.platCount < 3:
+        createRectPlats(data)
+
+def drawStartingPlatforms(data):
+    data.rectPlat.rect.bottom = data.screenSize[1] - data.margin
+    if data.platCount == 1:
+        data.rectPlat.rect.left = data.margin
+    elif data.platCount == 2:
+        data.rectPlat.rect.centerx = data.screenSize[0]/2 - data.margin
+    elif data.platCount == 3:
+        data.rectPlat.rect.centerx = data.screenSize[0]
+        data.rectPlat.rect.bottom = data.screenSize[1] - 3*data.margin
+        data.rightMostRectPlat = data.rectPlat
+        data.highestRectPlat = data.rectPlat
+
+def checkPlatformPlacement(data):
+    illegalPlatforms = pygame.sprite.spritecollide(data.rectPlat,
+                                        data.platformList, False)
+    if len(illegalPlatforms) == 0:
+        illegalXDistance = data.rightMostRectPlat.rect.right+data.rectPlat.width/2
+        if data.rectPlat.rect.centerx >= illegalXDistance:
+            data.rightMostRectPlat = data.rectPlat
+            data.platformList.add(data.rectPlat)
+            data.spritesList.add(data.rectPlat)
+                
+
+def createEnemies(data):
+    createNoobCopper(data)
+    createJetFighter(data)
+    createFootSoldier(data)
+
+# quick, agile, non-linear enemy, moves across a line with 3 loops
+#   with each equally sized loop tangent to the line the fighters centery
+#   travel on
+def createJetFighter(data):
+    xVelo, yVelo, health = -4, 0, data.jetFighterHealth
+    color = data.brown
+    width, height = 80,30
+    #got this image from 
+    #   http://spritedatabase.net/file/239
+    inputImage = "jetFighter.png"
+    jetFighter = JetFighter(xVelo, yVelo, width, height, 
+                            health, color,inputImage)
+    #start the center on the tangent line to the loops
+    jetFighter.rect.centery = data.loopsCy+data.loopRadius
+    jetFighter.rect.left = data.screenSize[0]
+    jetFighter.looping = False
+    jetFighter.loopingAtLeftPoint = False
+    jetFighter.loopCounter = 0
+    jetFighter.shootBackwards = False
+    checkLegalCopperSpawn(data, jetFighter)
+
+
+#weak, linear helicopter
+def createNoobCopper(data):
+    xVelo, yVelo, health = -2.5, 0, data.noobCopperHealth
+    color = data.yellow
+    width, height = 100, 50
+    inputImage = "noobCopper.png"
+    data.noobCopper = NoobCopper(xVelo, yVelo, width, height, health, color, inputImage)
+    data.noobCopper.rect.top = random.randint(
+            data.margin+2*data.margin+data.epsilon, 
+            int(data.screenSize[1]/5.0)+2*data.margin+data.epsilon)
+    data.noobCopper.rect.left = data.screenSize[0]
+    checkLegalCopperSpawn(data, data.noobCopper)
+
+def checkLegalCopperSpawn(data, enemy):
+    intersectedEnemies = pygame.sprite.spritecollide(
+                enemy, data.spritesList, False)
+    if len(intersectedEnemies) != 0:
+        pass
+    else:
+        createEnemyHealthBar(data, enemy)
+        data.spritesList.add(enemy.healthBar)
+        if enemy.healthBar.rect.top > 2*data.margin+data.epsilon:
+            #does the health bar spawn on top of an enemy?
+            if checkHealthBarSpawnIntersects(data, enemy) == True:
+                data.enemyList.add(enemy)
+                data.spritesList.add(enemy)
+
+def checkHealthBarSpawnIntersects(data, enemy):
+    intersectedEnemies = pygame.sprite.spritecollide(
+                        enemy.healthBar, data.enemyList, False)
+    intersectedPlats = pygame.sprite.spritecollide(
+                        enemy.healthBar, data.platformList, False)
+    if len(intersectedEnemies) == 0 and len(intersectedPlats) == 0:
+        return True
+    else:
+        data.spritesList.remove(enemy.healthBar)
+        return False
+
+#more health than noobCoppers, stronger weapon
+def createFootSoldier(data):
+    data.footSoldiersCreated += 1
+    xVelo, yVelo, health = -3.5,0,data.footSoldierHealth
+    #got this image from:
+    #   http://kenisi.deviantart.com/art/100-Deviations-364715663
+    inputImage = "soldiers.png"
+    color = data.gray
+    width, height = 45, 90
+    footSoldier = FootSoldier(xVelo, yVelo, width, height, 
+                                    health, color, inputImage)
+    #add soldier in, check if it's legal, remove if illegal, keep otherwise
+    spawnFootSoldier(data, footSoldier)
+
+
+#spawn them only on plats to the right of the screen 
+#   and on plats that don't have footsoldiers already
+def spawnFootSoldier(data, footSoldier):
+    for platform in data.platformList:
+        if ((platform.rect.centerx-2*data.epsilon > data.screenSize[0]) and 
+                            (platform.enemySpawned == False)):
+            legal = checkLegalFootSoldierSpawn(data, footSoldier, platform)
+            if legal == True:
+                data.enemyList.add(footSoldier)
+                data.spritesList.add(footSoldier)
+                createEnemyHealthBar(data, footSoldier)
+                data.spritesList.add(footSoldier.healthBar)
+                if checkHealthBarSpawnIntersects(data, footSoldier) == True:
+                    break
+                else:
+                    platform.enemySpawned = False
+                    data.enemyList.remove(footSoldier)
+                    data.spritesList.remove(footSoldier)
+                    data.spritesList.remove(footSoldier.healthBar)
+            else:
+                pass
+
+def checkLegalFootSoldierSpawn(data, footSoldier, platform):
+    #try and place the soldier on all spots of the platform, 
+    #   return false if it intersects with another platform at any point
+    footSoldier.rect.bottom = platform.rect.top-1 
+    # -1 so not intersecting with that one
+    for position in xrange(platform.rect.left, platform.rect.right+1, 
+                                                footSoldier.width):
+        footSoldier.rect.left = position
+        platIntersects = pygame.sprite.spritecollide(footSoldier, 
+                                        data.platformList, False)
+        if len(platIntersects) != 0:
+            return False
+    #if we make it out, check one more position
+    footSoldier.rect.right = platform.rect.right
+    platIntersects = pygame.sprite.spritecollide(footSoldier, 
+                                        data.platformList, False)
+    if len(platIntersects) != 0:
+        return False
+    #if this passes, this should be a legal spawn
+    footSoldier.platform = platform
+    footSoldier.rect.right = random.randint(platform.rect.centerx+3*data.epsilon, 
+                        platform.rect.right)
+    footSoldier.rect.bottom = platform.rect.top
+    platform.enemySpawned = True
+    return True
+
+#bar that starts with full health
+def createEnemyHealthBar(data, enemy):
+    height = data.skinnyHealthBarSize
+    length = enemy.width
+    color = data.red
+    enemyHealthBar = EnemyHealthBar(length, height, color) 
+    enemyHealthBar.rect.centerx = enemy.rect.centerx
+    enemyHealthBar.rect.bottom = enemy.rect.top - height
+    enemy.healthBar = enemyHealthBar
+    #where to begin drawing the black rectangles repping a loss of health
+    enemy.nextHealthLossRectLeft = enemy.healthBar.rect.left
+
+def createPlayer(data):
+    velo, maxJump = 5, 20
+    width, height = 50, 100
+    health = data.playerHealth
+    #got this image from:
+    #  http://www.deviantart.com/morelikethis/artists/243170599?view_mode=2
+    inputImage = "character.png"
+    data.player = Player(velo, maxJump, width, height, 
+                        data.red, health, inputImage)
+    data.player.rect.left = 0+data.margin
+    #start in mid air
+    data.player.rect.bottom = data.screenSize[1]/2.0
+    data.player.velo = [0, 0]
+    #starting weapon
+    data.player.gun = data.smg
+    data.spritesList.add(data.player.gun)
+    createPlayerHealthBar(data)
+    createPlayerAntiGravityBar(data)
+    data.playerList.add(data.player)
+    data.spritesList.add(data.player)
+
+def createPlayerHealthBar(data):
+    length, height = 200, data.skinnyHealthBarSize
+    color = data.red
+    totalHealth = data.playerHealth
+    data.playerHealthBar = PlayerHealthBar(
+                length, height, color, totalHealth)
+    data.playerHealthBar.rect.left = data.margin
+    data.playerHealthBar.rect.top = data.margin
+    #where to position the lost health
+    data.nextHealthLossRectRight = data.playerHealthBar.rect.right
+    data.spritesList.add(data.playerHealthBar)
+
+def createPlayerAntiGravityBar(data):
+    length, height = 200, data.skinnyHealthBarSize
+    color = data.blue
+    totalTime = data.antiGravityTimeLimit
+    data.playerAntiGravityBar = PlayerHealthBar(
+                length, height, color, totalTime)
+    data.playerAntiGravityBar.rect.left = data.margin
+    data.playerAntiGravityBar.rect.bottom = data.margin
+    data.nextAntiGravLossRectRight = data.playerAntiGravityBar.rect.right
+    data.spritesList.add(data.playerAntiGravityBar)
+
+def createHealthPickUp(data):
+    color = data.red
+    #can gain anywhere from 40 to 100 health
+    healthList = range(40,101,10)
+    randIndex = random.randint(0,len(healthList)-1)
+    healthGained = healthList[randIndex]
+    total = data.playerHealth
+    healthPickUp = HealthBarPickUp(color, healthGained, total)
+    spawnPickUpBar(data, healthPickUp)
+
+def createAntiGravPickUp(data):
+    color = data.blue
+    #can gain either 3 seconds or 6 seconds
+    timeList = [3,6]
+    randIndex = random.randint(0, len(timeList)-1)
+    timeGained = timeList[randIndex]
+    total = data.antiGravityTimeLimit
+    antiGravPickUp = AntiGravityBarPickUp(color, timeGained, total)
+    spawnPickUpBar(data, antiGravPickUp)
+
+def spawnPickUpBar(data, bar):
+    for platform in data.platformList:
+        if ((platform.rect.centerx-2*data.epsilon > data.screenSize[0]) and 
+            (platform.enemySpawned == False) and 
+            (platform.healthOrGravBarSpawned == False)):
+            legal = checkLegalBarSpawn(data, bar, platform)
+            if legal == True:
+                if bar.color == data.red:
+                    #only spawn one on the screen at a time
+                    data.healthBarPickUpIsOnScreen = True
+                elif bar.color == data.blue:
+                    data.antiGravBarIsOnScreen = True
+                data.spritesList.add(bar)
+                data.barPickUps.add(bar)
+                break
+
+def checkLegalBarSpawn(data, bar, platform):
+    bar.rect.bottom = platform.rect.top - 1
+    for position in xrange(platform.rect.left, platform.rect.right, 
+                                                    bar.length):
+        bar.rect.left = position
+        enemyIntersects = pygame.sprite.spritecollide(bar,data.enemyList,False)
+        if len(enemyIntersects) != 0:
+            return False
+    #for health/grav bars, not gun pick ups
+    #only one health bar available on the screen at a time
+    if bar.color == data.red and data.healthBarPickUpIsOnScreen == True:
+        return False
+    elif bar.color == data.blue and data.antiGravBarIsOnScreen == True:
+        return False
+    bar.platform = platform
+    bar.rect.bottom = platform.rect.top
+    bar.rect.left = random.randint(platform.rect.left, platform.rect.centerx)
+    if bar.color == data.red or bar.color == data.blue:
+        platform.healthOrGravBarSpawned = True
+    return True
+
+def createGunPickUp(data):
+    randIndex = random.randint(0,len(data.pickUpGunList)-1)
+    pickUpGunBundle = data.pickUpGunList[randIndex]
+    if data.pickUpGunList == []:
+        data.pickUpGunList = [data.arBundle, data.raygunBundle,
+                                data.rocketlauncherBundle]
+    #identify gun by color: orangeBrown, pink, and darkGreen
+    # ar
+    if pickUpGunBundle[4] == data.orangeBrown:
+        length, height, color = 20, 46, data.orangeBrown
+        inputImage = data.arImage
+    #raygun
+    elif pickUpGunBundle[4] == data.pink:
+        length, height, color = 16, 30, data.pink
+        inputImage = data.raygunImage
+    #rocketlauncher
+    # elif pickUpGunBundle[4] == data.darkGreen:
+    else:
+        length, height, color = 24, 70, data.darkGreen
+        inputImage = data.rocketlauncherImage
+    #all images were goten from:
+    #   http://www.terrariaonline.com/threads/
+    #   wip-released-whale_cancers-minimods-and-sprites.96507/
+    gunPickUpBar = GunPickUpBar(length, height, color, inputImage)
+    gunPickUpBar.bundle = pickUpGunBundle
+    spawnGunPickUp(data, gunPickUpBar)
+
+def spawnGunPickUp(data, gunPickUpBar):
+    for platform in data.platformList:
+        if (platform.rect.centerx-2*data.epsilon > data.screenSize[0]):
+            legal = checkLegalBarSpawn(data, gunPickUpBar, platform)
+            if legal == True:
+                data.pickUpGunList.remove(gunPickUpBar.bundle)
+                if data.pickUpGunList == []:
+                    data.pickUpGunList = [data.arBundle, data.raygunBundle,
+                                data.rocketlauncherBundle]
+                makeGunBoolsTrue(data)
+                data.gunHasSpawned = True
+                data.spritesList.add(gunPickUpBar)
+                data.gunPickUps.add(gunPickUpBar)
+                break
+            else:
+                if data.gunHasSpawned == False:
+                    resetGunPickUpBools(data, gunPickUpBar)
+        else:
+            if data.gunHasSpawned == False:
+                resetGunPickUpBools(data, gunPickUpBar)
+
+def makeGunBoolsTrue(data):
+    if (data.trackKills >= data.gunSpawnVals[0] and 
+            data.trackKills <= data.gunSpawnVals[1]):
+        data.firstGunPickUp = True
+    elif (data.trackKills >= data.gunSpawnVals[2] and 
+            data.trackKills <= data.gunSpawnVals[3]):
+        data.secondGunPickUp = True
+    elif (data.trackKills >= data.gunSpawnVals[4] and 
+            data.trackKills <= data.gunSpawnVals[5]):
+        data.thirdGunPickUp = True
+
+
+#if we pick up an ar once, we don't wana do it again
+def resetGunPickUpBools(data, gunPickUpBar):
+    #reset first, second, third gun kill booleans
+    if (data.trackKills >= data.gunSpawnVals[0] and 
+            data.trackKills <= data.gunSpawnVals[1]):
+        data.firstGunPickUp = False
+    elif (data.trackKills >= data.gunSpawnVals[2] and 
+            data.trackKills <= data.gunSpawnVals[3]):
+        data.secondGunPickUp = False
+    elif (data.trackKills >= data.gunSpawnVals[4] and 
+            data.trackKills <= data.gunSpawnVals[5]):
+        data.thirdGunPickUp = False
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""INITIALIZERS"""
+
+def init(data):
+    data.gameOver = False
+    data.inMidAir = False
+    data.onPlatform = False
+    data.spawnEnemy = True
+    data.pressingD = False
+    data.shiftingEverythingLeft = False
+    data.healthBlackBar = None
+    #when to start moving the screen left instead
+    #   of player to the right
+    data.shiftPosition = 2*data.screenSize[0]/3.0
+    data.hitShiftPosition = False
+    antiGravityInit(data)
+    moreInits(data)
+    menuInit(data)
+    endMenuInit(data)
+
+def endMenuInit(data):
+    data.endMenuMainMenu = pygame.image.load("endMenuMainMenu.png").convert()
+    data.endMenuMainMenu.set_colorkey(data.white)
+    data.endMenuRect = data.endMenuMainMenu.get_rect()
+    data.endMenuRect.centerx = data.screenSize[0]/2
+    data.endMenuRect.top = data.screenSize[1]/2 + 75
+
+def menuInit(data):
+    #drawing instructions
+    data.instructions = False
+    #draw controls
+    data.controlsBool = False
+    data.itemsBool = False
+    data.backRect = None
+    data.controlsRect = None
+    data.itemsRect = None
+    #back button
+    backInit(data)
+    #controls button
+    controlsInit(data)
+    #items button
+    itemsInit(data)
+
+def backInit(data):
+    data.back = pygame.image.load("back.png").convert()
+    data.back.set_colorkey(data.white)
+    data.backRect = data.back.get_rect()
+    data.backRect.left = data.margin
+    data.backRect.top = data.margin
+
+def controlsInit(data):
+    data.controls = pygame.image.load("controls.png").convert()
+    data.controls.set_colorkey(data.white)
+    data.controlsRect = data.controls.get_rect()
+    data.controlsRect.left = int(round(1*data.screenSize[0]/8.0))
+    data.controlsRect.centery = data.screenSize[1]/2
+
+def itemsInit(data):
+    data.items = pygame.image.load("items.png").convert()
+    data.items.set_colorkey(data.white)
+    data.itemsRect = data.items.get_rect()
+    data.itemsRect.right = int(round(4*data.screenSize[0]/8.0))
+    data.itemsRect.centery = data.screenSize[1]/2
+
+def moreInits(data):
+    enemyInits(data)
+    data.epsilon = 5
+    data.margin = 10
+    playerHealthBarInit(data)
+    data.prevVeloX = 0
+    data.prevVeloY = 0
+    data.mousePos = (0,0)
+    data.bulletXVelo = 17
+    data.currTime = time.time()
+    data.timerFiredCount = 0
+    data.anitGravCurrTime = time.time()
+    dataInits(data)
+
+def antiGravityInit(data):
+    data.healthBarPickUpIsOnScreen = False
+    data.antiGravBarIsOnScreen = False
+    data.antiGravity = False
+    data.antiGravityTimeLeft = 10 # seconds
+    data.antiGravityTimeLimit = 10 # seconds
+    data.antiGravBarAvail = True
+    #player has to wait 5 seconds before the antigravity bar replenishes
+    data.startWaitingTime = time.time()
+    data.timeToWait = 3 # seconds
+    #so we can remove the used anti grav black bars in order
+    #   so we can replenish the gravity bar
+    #   last in, first out
+    data.orderedUsedAntiGravList = []
+    #full black bar covers blue bar to represent no more antigravity available
+    data.antiGravBlackBar = None
+
+def initColors(data):
+    data.black = (0,0,0)
+    data.white = (255,255,255)
+    data.red = (255,0,0)
+    data.green = (0,255,0)
+    data.blue = (0,0,255)
+    data.yellow = (255,255,0)
+    data.orange = (255,165,0)
+    data.cyan = (0,255,255)
+    data.purple = (128,0,128)
+    data.brown = (165,42,42)
+    data.gray = (190,190,190)
+    data.pink = (255,20,147)
+    data.magenta = (255,0,255)
+    data.mahogany = (102,0,0)
+    data.mediumSpringGreen = (0,250,154)
+    data.lightGray = (222,237,247)
+    data.orangeBrown = (193,77,23)
+    data.darkGreen = (13,198,90)
+    data.colorList = [data.black, data.white, data.red, 
+                        data.green, data.blue, data.yellow, 
+                        data.orange, data.cyan, data.purple, 
+                        data.brown, data.gray, data.magenta,
+                        data.mahogany, data.mediumSpringGreen,
+                        data.lightGray]
+
+def backgroundInit(data):
+    #this background was obtained by:
+    # http://1-background.com/images/black-dreams/
+    #       black-dreams-in-red-website-background.jpg
+    data.bground = pygame.image.load("redbackground3.jpg").convert()
+    data.bground = pygame.transform.scale(data.bground, data.screenSize)
+    data.bgroundRect = data.bground.get_rect()
+    (data.bgVeloX, data.bgVeloY) = (-data.screenSize[0]/200.0, 0)
+    data.bgVelo = [data.bgVeloX, data.bgVeloY]
+    data.copyBground = data.bground.copy()
+    data.copyBgroundRect = data.copyBground.get_rect()
+    data.cpBgX, data.cpBgY = 0,0
+
+#gun's fire rate
+def gunInit(data):
+    data.gunYCoord = data.margin*2
+    data.laserX0, data.laserY0 = (0,0)
+    #sub machine gun
+    smgInit(data)
+    #assault rifle
+    arInit(data)
+    #raygun
+    raygunInit(data)
+    #rocketlauncher
+    rocketlauncherInit(data)
+    createGunInit(data)
+    switchingWeaponsInit(data)
+    data.gunPointsLeft = False
+    #for drawing them on the top left of the screen
+    #   groups are unordered so manually make them ordered
+    #   to draw guns in order of pick up
+    data.gun1 = pygame.sprite.Group()
+    #starting weapon
+    data.gun1.add(data.smgGun)
+    #for the demo
+    data.gun2 = pygame.sprite.Group()
+    # data.arGun.rect.left = data.margin+data.smgGun.rect.right
+    # data.gun2.add(data.arGun)
+    data.gun3 = pygame.sprite.Group()
+    # data.raygunGun.rect.left = data.margin+data.arGun.rect.right
+    # data.gun3.add(data.raygunGun)
+    data.gun4 = pygame.sprite.Group()
+    # data.rocketlauncherGun.rect.left = data.margin + data.raygunGun.rect.right
+    # data.gun4.add(data.rocketlauncherGun)
+    data.gunSpriteList = [data.gun2, data.gun3, data.gun4]
+
+#when we switch weapons, we want to account for
+#   how much of the clip a weapon has used before 
+#   switching to it
+def switchingWeaponsInit(data):
+    data.prevSMGBulletList = pygame.sprite.Group()
+    data.prevARBulletList = pygame.sprite.Group()
+    data.prevRAYGUNBulletList = pygame.sprite.Group()
+    data.prevROCKETLAUNCHERBulletList = pygame.sprite.Group()
+
+def createGunInit(data):
+    data.startingToReload = None
+    #for the rocket launcher. when it hits something, it explodes and
+    #   damages nearby enemies
+    data.launcherBlastRadius = 300
+    data.gunList = [data.smgBundle, data.arBundle, 
+        data.raygunBundle, data.rocketlauncherBundle]
+    #doesn't include the starting weapon
+    data.pickUpGunList = [data.arBundle, data.raygunBundle, 
+                            data.rocketlauncherBundle]
+    data.reloading = False
+    moreGunInit(data)
+
+def moreGunInit(data):
+    data.gunBundle = data.gunList[0]
+    #counts how many time getMouseHeld is called by timer fired, and
+    #   mod this by fireRate to increase or decrease the visual fireRate
+    data.gunBulletCount = data.gunBundle[0]
+    data.gunMaxBullets = data.gunBundle[1]
+    data.gunFR = data.gunBundle[2]
+    data.gunDamage = data.gunBundle[3]
+    data.gunColor = data.gunBundle[4]
+    data.gunBulletSize = data.gunBundle[5]
+    data.gunClipSize = data.gunBundle[6]
+    data.gunBulletList = copy.deepcopy(data.gunBundle[7])
+    data.gunReloadTime = data.gunBundle[8] # seconds
+    data.gunImage = data.gunBundle[9]
+    data.firstGunPickUp = False
+    data.secondGunPickUp = False
+    data.thirdGunPickUp = False
+    data.gunPickUps = pygame.sprite.Group()
+    data.trackKills = 0
+    #starting weapon, and when weapons get picked up, cycle through them
+    data.availableGunList = [data.smgBundle]
+    data.gunHasSpawned = False
+    #if players get kills inbetween every two of these values, they 
+    #   get rewarded with a new gun drop
+    data.gunSpawnVals = [5,10,15,20,25,30] 
+    
+
+#all gun images besides smg0 were obtained from:
+# http://www.terrariaonline.com/threads/
+#   wip-released-whale_cancers-minimods-and-sprites.96507/
+#smg0 was from:
+# http://www.deviantart.com/morelikethis/artists/243170599?view_mode=2
+
+def smgInit(data):
+    #fire rate, sub machine gun, starting weapon
+    data.smgBulletCount = 0
+    #virtually unlimited
+    data.smgMaxBullets = 10000000000000000000000
+    data.smgFR = 7
+    data.smgDamage = 3
+    data.smgColor = data.yellow
+    data.smgBulletSize = (10,3)
+    data.smgClipSize = 50
+    data.smgBulletList = pygame.sprite.Group()
+    data.smgReloadTime = 3 # seconds
+    data.smgImage = "smg0.png"
+    data.smg = PlayerGun(data.smgImage)
+    #for facing left and right
+    data.smgFacingLeft = False
+    # for the top left
+    data.smgGun = PlayerGun(data.smgImage)
+    data.smgGun.rect.left = data.margin
+    data.smgGun.rect.top = data.gunYCoord
+    data.smgBundle = [data.smgBulletCount, data.smgMaxBullets, data.smgFR, 
+                    data.smgDamage, data.smgColor, data.smgBulletSize, 
+                    data.smgClipSize, data.smgBulletList, data.smgReloadTime,
+                    data.smgImage, data.smg, data.smgGun]
+    data.nextGunXCoord = data.smgGun.rect.right + data.margin
+
+def arInit(data):
+    #assault rifle, 14 is two times slower, weapon pick up
+    data.arBulletCount = 0
+    data.arMaxBullets = 40
+    data.arFR = 14
+    data.arDamage = 9
+    data.arColor = data.orangeBrown
+    data.arBulletSize = (15,6)
+    data.arClipSize = 20
+    data.arBulletList = pygame.sprite.Group()
+    data.arReloadTime = 4 # seconds
+    data.arImage = "ar.png"
+    data.ar = PlayerGun(data.arImage)
+    #for facing left and right
+    data.arFacingLeft = False
+    # for the top left
+    data.arGun = PlayerGun(data.arImage)
+    data.arGun.rect.top = data.gunYCoord
+    data.arBundle = [data.arBulletCount, data.arMaxBullets, data.arFR,
+                    data.arDamage, data.arColor, data.arBulletSize,
+                    data.arClipSize, data.arBulletList, data.arReloadTime,
+                    data.arImage, data.ar, data.arGun]
+
+#raygun's beams can go through multiple enemies
+def raygunInit(data):
+    #ray gun, weapon pick up
+    data.raygunBulletCount = 0
+    data.raygunMaxBullets = 16
+    data.raygunFR = 28
+    data.raygunDamage = 7
+    data.raygunColor = data.pink
+    data.raygunBulletSize = (20,6)
+    data.raygunClipSize = 8
+    data.raygunBulletList = pygame.sprite.Group()
+    data.raygunReloadTime = 2 # seconds
+    data.raygunImage = "raygun.png"
+    data.raygun = PlayerGun(data.raygunImage)
+    #for facing left and right
+    data.raygunFacingLeft = False
+    # for the top left
+    data.raygunGun = PlayerGun(data.raygunImage)
+    data.raygunGun.rect.top = data.gunYCoord
+    data.raygunBundle = [data.raygunBulletCount, data.raygunMaxBullets, data.raygunFR,
+                        data.raygunDamage, data.raygunColor, data.raygunBulletSize,
+                        data.raygunClipSize, data.raygunBulletList, data.raygunReloadTime,
+                        data.raygunImage, data.raygun, data.raygunGun]
+
+#rocketlauncher has a blast radius and can hurt surrounding enemies
+def rocketlauncherInit(data):
+    #rocket launcher
+    data.rocketlauncherBulletCount = 0
+    data.rocketlauncherMaxBullets = 8#4
+    data.rocketlauncherFR = 50
+    data.rocketlauncherDamage = 22
+    data.rocketlauncherColor = data.darkGreen
+    data.rocketlauncherBulletSize = (30,10)
+    data.rocketlauncherClipSize = 4
+    data.rocketlauncherBulletList = pygame.sprite.Group()
+    data.rocketlauncherReloadTime = 3#5 # seconds
+    data.rocketlauncherImage = "rocketlauncher.png"
+    data.rocketlauncher = PlayerGun(data.rocketlauncherImage)
+    #for facing left and right
+    data.rocketlauncherFacingLeft = False
+    # for the top left
+    data.rocketlauncherGun = PlayerGun(data.rocketlauncherImage)
+    data.rocketlauncherGun.rect.top = data.gunYCoord
+    data.rocketlauncherBundle = [
+                data.rocketlauncherBulletCount, data.rocketlauncherMaxBullets,
+                data.rocketlauncherFR, data.rocketlauncherDamage,
+                data.rocketlauncherColor, data.rocketlauncherBulletSize,
+                data.rocketlauncherClipSize, data.rocketlauncherBulletList,
+                data.rocketlauncherReloadTime, data.rocketlauncherImage,
+                data.rocketlauncher, data.rocketlauncherGun]
+
+def playerHealthBarInit(data):
+    data.playerHealth = 1000#300
+    data.skinnyHealthBarSize = 10
+    #where to position the lost health
+    data.nextHealthLossRectRight = None
+    #keep drawing black rectangles from right 
+    #   until we reach this point to represent losing health
+    data.leftSideOfHealthBar = data.margin
+
+def dataInits(data):
+    backgroundInit(data)
+    initColors(data)
+    gunInit(data)
+    spriteInits(data)
+    platformsInit(data)
+    createPlayer(data)
+    createEnemies(data)
+    scoreInit(data)
+
+def scoreInit(data):
+    data.kills = 0
+    data.score = 0
+    data.distance = 0
+    #the farthest he's gone right before ever hitting
+    #   the shift position
+    data.playerFurthestRight = 0
+    data.ringsCollected = 0
+    data.timePlayed = 0
+    data.timePaused = 0
+    data.startTime = time.time()
+
+def spriteInits(data):
+    data.spritesList = pygame.sprite.Group()
+    data.playerList = pygame.sprite.Group()
+    data.bulletList = pygame.sprite.Group()
+    data.enemyList = pygame.sprite.Group()
+    data.platformList = pygame.sprite.Group()
+    data.enemyBulletList = pygame.sprite.Group()
+    #for player, the black bars that repr his lost health
+    data.lostHealthBarList = pygame.sprite.Group()
+    data.orderedLostHealthBarList = []
+    data.usedAntiGravList = pygame.sprite.Group()
+    #2D list/group of lostHealthBars for enemies
+    data.lostEnemyHealthBarsList = []
+    data.barPickUps = pygame.sprite.Group()
+
+def platformsInit(data):
+    #make the first platforms for player to stand on
+    data.platMadeFromInit = True
+    data.platCount = 0
+    #to determine if a platform is legal or not
+    data.rightMostRectPlat = None
+    createPlatforms(data)
+
+def enemyInits(data):
+    enemyHealthBarInit(data)
+    data.footSoldiersCreated = 0
+    # the jetFighters will travel along 3 loops as they move
+    #   to the left
+    data.loopsCy = 125
+    data.leftLoopCx = int(1.0*data.screenSize[0]/4)
+    data.midLoopCx = int(2.0*data.screenSize[0]/4)
+    data.rightLoopCx = int(3.0*data.screenSize[0]/4)
+    data.loopRadius = 50
+
+def enemyHealthBarInit(data):
+    data.noobCopperHealth = 25
+    data.jetFighterHealth = 20
+    data.footSoldierHealth = 30
+
+
+
+
+
+
+
+
+
+
+
+"""RUN"""
+    
+
+def run():
+    #your root = Tk()
+    pygame.init()
+    screenWidth = 1200
+    screenHeight = 700
+    class Struct: pass
+    data = Struct()
+    #set up the screen
+    data.screenSize = [screenWidth, screenHeight]
+    data.screen = pygame.display.set_mode(data.screenSize)
+    data.paused = False
+    data.mode = "Main Menu"
+    init(data)
+    #no root.mainloop so have to keep calling timerFired ourselves
+    data.clock = pygame.time.Clock() 
+    timerFired(data)
+    while data.gameOver != True:
+        timerFired(data)
+
+run()
